@@ -260,7 +260,10 @@ func (c *Core) weightsInfo(spec models.ModelSpec) WeightsInfo {
 	case models.WeightsNone:
 		return WeightsInfo{Ready: true, Path: "-", At: 0}
 	case models.WeightsAuto:
-		// 引擎自己管权重：装了依赖就算「可用」，首次推理会自己拉模型
+		// 引擎自己管权重（onnx 包内置 / 首次推理自己拉）：装了依赖就算可用。
+		// 这里不能落到下面去读标记文件——auto 的模型永远不会写标记，
+		// 读不到就会一直显示「还没权重」，界面上就只剩「安装依赖」这一个按钮。
+		return WeightsInfo{Ready: true, Path: "-", At: 0}
 	}
 
 	raw, err := os.ReadFile(c.Paths.ModelReadyMarker(spec.ID))
