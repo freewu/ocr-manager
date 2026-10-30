@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strings"
 
 	"github.com/oneo-me/nsgo"
 )
@@ -20,13 +22,19 @@ func main() {
 	defer stopTray()
 	// 窗口起不来（多半是 Linux 缺 GTK 4 运行库）时给一句能照做的话，别只甩 panic。
 	defer func() {
-		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "启动界面失败：%v\n", r)
-			if runtime.GOOS == "linux" {
-				fmt.Fprintln(os.Stderr, "Linux 需要 GTK 4 / Pango / Cairo，例如：sudo apt install libgtk-4-1 libpango-1.0-0 libcairo2")
-			}
-			os.Exit(1)
+		r := recover()
+		if r == nil {
+			return
 		}
+		msg := fmt.Sprint(r)
+		fmt.Fprintf(os.Stderr, "启动界面失败：%v\n", r)
+		// 光一句 nil pointer 谁也修不了，调用栈一起打出来（启动期只有一次，不影响性能）。
+		fmt.Fprintf(os.Stderr, "%s\n", debug.Stack())
+		// 只有确实是 GTK 缺失才搬出安装命令，别让别的 panic 也套上这句话。
+		if runtime.GOOS == "linux" && strings.Contains(msg, "GTK") {
+			fmt.Fprintln(os.Stderr, "Linux 需要 GTK 4 / Pango / Cairo，例如：sudo apt install libgtk-4-1 libpango-1.0-0 libcairo2")
+		}
+		os.Exit(1)
 	}()
 
 	startTray()
