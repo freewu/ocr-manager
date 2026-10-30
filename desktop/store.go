@@ -18,6 +18,12 @@ type logLine struct {
 	level   string
 	source  string
 	message string
+	// 进度事件额外带上这些：模型卡上要画百分比和已下字节数
+	stage      string
+	detail     string
+	percent    *float64
+	bytesDone  uint64
+	bytesTotal uint64
 }
 
 // store 是 UI 的全部数据。只在引擎 goroutine 上读写：
@@ -44,6 +50,10 @@ type store struct {
 	notice  string
 	err     string
 	toastAt int64
+	// op 是后端正在跑的后台任务（装依赖 / 下权重），界面拿它画进度
+	op *Op
+	// fp 是上一次渲染内容指纹：轮询时没变就不重绘整棵树
+	fp string
 	// expanded 记哪些模型卡展开了详情：默认收着，只露摘要
 	expanded map[string]bool
 }
@@ -97,6 +107,16 @@ type ui struct {
 	hfEp       *core.Signal[string]
 	maxSide    *core.Signal[string]
 
+	// previewZoom 是预览的缩放倍数（1 = 适应面板），previewPan 是拖出来的位移
+	previewZoom *core.Signal[float32]
+	previewPan  *core.Signal[core.Point]
+	// previewBox 是预览面板的实际尺寸，previewNatW/H 是图片原始像素尺寸
+	previewBox  core.Bounds
+	previewNatW int
+	previewNatH int
+	panBase     core.Point
+	pinchBase   float32
+
 	refreshing atomic.Bool
 }
 
@@ -124,6 +144,8 @@ func newUI(cx *core.Scope) *ui {
 		outDir:      core.NewSignal(cx, ""),
 		hfEp:        core.NewSignal(cx, ""),
 		maxSide:     core.NewSignal(cx, ""),
+		previewZoom: core.NewSignal(cx, previewZoomFit),
+		previewPan:  core.NewSignal(cx, core.Point{}),
 	}
 	cx.Cleanup(stopServer)
 	return u
@@ -194,9 +216,8 @@ func (u *ui) refresh() {
 			u.post(func() { u.st.fail(err.Error()) })
 			return
 		}
-		env, _ := u.cl.env(u.ctx)
+		env, _ := u.cl.env(u.ctx, false)
 		events, _ := u.cl.logs(u.ctx, 200)
-		history, _ := u.cl.history(u.ctx, 100)
 
 		var job *Job
 		if id := u.currentJobID(); id != "" {
@@ -205,15 +226,26 @@ func (u *ui) refresh() {
 			}
 		}
 
+		// 识别在跑的时候不去翻 100 份产物目录：磁盘 I/O 会拖慢进度刷新，
+		// 反正任务结束时还会刷新一轮。
+		running := job != nil && job.Status == "running"
+		var history []HistoryEntry
+		if !running {
+			history, _ = u.cl.history(u.ctx, 100)
+		}
+
 		u.post(func() {
 			u.st.connected = true
 			u.st.status = "已连接 " + u.cl.base
 			u.st.connErr = ""
 			u.st.info = &info
+			u.st.op = info.Op
 			u.st.models = models
 			u.st.env = env
 			u.st.logs = toLogLines(events)
-			u.st.history = history
+			if !running {
+				u.st.history = history
+			}
 			if job != nil {
 				u.applyJob(*job)
 			}
@@ -240,7 +272,12 @@ func (u *ui) refresh() {
 					u.outDir.Set(info.Dirs["output"])
 				}
 			}
-			u.bump()
+			// 轮询只做「真的变了才重画」：后台下载进度在动的时候才有必要重画，
+			// 闲着时候每秒重建整棵树会让主页面看起来在抖。
+			if fp := u.st.fingerprint(); fp != u.st.fp {
+				u.st.fp = fp
+				u.bump()
+			}
 		})
 	}()
 }
@@ -308,7 +345,45 @@ func (u *ui) guard(label string, fn func(ctx context.Context) error) {
 }
 
 func (u *ui) prepare(id string, force bool) {
-	u.guard("准备 "+id, func(ctx context.Context) error { return u.cl.prepare(ctx, id, force) })
+	// 先本地翻成「准备中」：不等后端回话界面就有反应，下载本体全在后台。
+	u.markPreparing(id)
+	u.startOp(func(ctx context.Context) error { return u.cl.prepare(ctx, id, force) })
+}
+
+// markPreparing 把某条模型本地改成「准备中」，省得用户重复点下载。
+func (u *ui) markPreparing(id string) {
+	u.post(func() {
+		for i := range u.st.models {
+			if u.st.models[i].ID != id {
+				continue
+			}
+			u.st.models[i].Status.State = "preparing"
+			u.st.models[i].Status.Message = "正在后台准备…"
+		}
+		u.st.clearToast()
+		u.bump()
+	})
+}
+
+// startOp 发一个后台长任务（装依赖 / 下权重）：立刻返回，进度靠轮询推进。
+//
+// 不用 guard：那是给「几毫秒就回来」的动作用的，长任务一挂上 busy 会把
+// 主页面的按钮全部置灰，看着像卡死了。
+func (u *ui) startOp(call func(ctx context.Context) error) {
+	go func() {
+		err := call(u.ctx)
+		u.post(func() {
+			if err != nil {
+				u.st.fail(err.Error())
+			} else {
+				u.st.say("已经在后台开始，进度见模型卡与日志")
+			}
+			u.bump()
+		})
+		if err == nil {
+			u.refresh()
+		}
+	}()
 }
 
 func (u *ui) activate(id string) {
@@ -368,15 +443,11 @@ func (u *ui) cancelJob() {
 }
 
 func (u *ui) installEnv(extras []string) {
-	label := "安装依赖 " + strings.Join(extras, ",")
-	if len(extras) == 0 {
-		label = "安装全部依赖"
-	}
-	u.guard(label, func(ctx context.Context) error { return u.cl.installEnv(ctx, extras) })
+	u.startOp(func(ctx context.Context) error { return u.cl.installEnv(ctx, extras) })
 }
 
 func (u *ui) recreateEnv() {
-	u.guard("重建 venv", func(ctx context.Context) error { return u.cl.recreateEnv(ctx) })
+	u.startOp(func(ctx context.Context) error { return u.cl.recreateEnv(ctx) })
 }
 
 func (u *ui) selectBasePython(base string) {
@@ -464,6 +535,12 @@ func toLogLines(events []Event) []logLine {
 		switch ev.Type {
 		case "progress":
 			line.level = "progress"
+			line.stage = ev.Stage
+			line.detail = ev.Message
+			line.percent = ev.Percent
+			if ev.Bytes != nil {
+				line.bytesDone, line.bytesTotal = ev.Bytes.Done, ev.Bytes.Total
+			}
 			pct := ""
 			if ev.Percent != nil {
 				pct = fmt.Sprintf("%.0f%% ", *ev.Percent)
@@ -496,6 +573,96 @@ func toLogLines(events []Event) []logLine {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// fingerprint 给「界面会显示的东西」算个指纹：轮询时没变就不重画整棵树。
+func (s *store) fingerprint() string {
+	var b strings.Builder
+	if s.info != nil {
+		fmt.Fprintf(&b, "v:%s|a:%s|e:%s:%s", s.info.Version, s.info.Active, s.info.Env.State, s.info.Env.Message)
+		set := s.info.Settings
+		fmt.Fprintf(&b, "|set:%s|%d|%d|%d|%s|%v", set.DefaultModel, set.MaxPages, set.PDFDPI, set.MaxSide, set.HFEndpoint, set.AutoLoad)
+	}
+	if s.op != nil {
+		// 带上已经跑了几秒：不然后台任务的「已跑 12s」会停在开始那一刻
+		fmt.Fprintf(&b, "|op:%s:%s:%d:%d", s.op.Kind, s.op.Model, s.op.Started, s.op.ElapsedMS()/1000)
+	}
+	fmt.Fprintf(&b, "|env:%s:%s", s.env.State, s.env.Message)
+	for _, m := range s.models {
+		st := m.Status
+		fmt.Fprintf(&b, "|m:%s:%s:%s:%s:%v:%v:%v:%d:%d:%d", m.ID, st.State, st.Message, st.Error,
+			st.Ready, st.ExtOK, st.Loaded, st.Workers, st.Weights.Files, st.Weights.Bytes)
+	}
+	if s.job != nil {
+		fmt.Fprintf(&b, "|j:%s:%s:%.1f:%s:%d:%d:%d", s.job.ID, s.job.Status, s.job.Progress,
+			s.job.Message, s.job.Pages, s.job.Blocks, s.job.Chars)
+	}
+	if s.result != nil {
+		fmt.Fprintf(&b, "|r:%d:%s", len(s.result.Pages), s.result.Engine)
+	}
+	fmt.Fprintf(&b, "|log:%d", len(s.logs))
+	if n := len(s.logs); n > 0 {
+		b.WriteString(s.logs[n-1].key)
+		b.WriteString(s.logs[n-1].message)
+	}
+	fmt.Fprintf(&b, "|hist:%d", len(s.history))
+	if len(s.history) > 0 {
+		b.WriteString(s.history[0].ID)
+	}
+	fmt.Fprintf(&b, "|conn:%v:%s:%s", s.connected, s.status, s.connErr)
+	return b.String()
+}
+
+// modelProgress 从最近的事件里翻出这条模型的下载 / 加载进度。
+func (u *ui) modelProgress(id string) (*float64, string) {
+	for i := len(u.st.logs) - 1; i >= 0; i-- {
+		line := u.st.logs[i]
+		if line.level != "progress" || line.source != id {
+			continue
+		}
+		note := strings.TrimSpace(line.detail)
+		if note == "" {
+			note = strings.TrimSpace(line.stage)
+		}
+		if line.bytesTotal > 0 {
+			size := fmt.Sprintf("%s / %s", fmtBytes(line.bytesDone), fmtBytes(line.bytesTotal))
+			if note == "" {
+				note = size
+			} else {
+				note += " · " + size
+			}
+		}
+		return line.percent, note
+	}
+	return nil, ""
+}
+
+// reprobeEnv 丢掉后端缓存、真探一遗 python 环境（界面上的「重新检测」）。
+func (u *ui) reprobeEnv() {
+	go func() {
+		env, err := u.cl.env(u.ctx, true)
+		u.post(func() {
+			if err != nil {
+				u.st.fail(err.Error())
+			} else {
+				u.st.env = env
+				u.st.say("环境已重新检测：" + env.State)
+			}
+			u.bump()
+		})
+	}()
+}
+
+// opBusy 报告后端是否有后台长任务在跑（装依赖 / 下权重 / 重建 venv）。
+func (u *ui) opBusy() bool { return u.st.op != nil }
+
+// opLabel 是后台上台任务的一句话说明（侧边栏底部用）。
+func (u *ui) opLabel() string {
+	op := u.st.op
+	if op == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s（后台 %ds）", op.Label, op.ElapsedMS()/1000)
 }
 
 // pickModel 选出识别页默认模型：清单默认 → 已就绪 → 第一个可用。

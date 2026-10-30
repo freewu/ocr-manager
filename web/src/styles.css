@@ -359,6 +359,13 @@ img {
   margin-bottom: 12px;
 }
 
+/* 后台任务：绿色调，和「正在提交」的蓝色横幅区分开 */
+.banner-op {
+  border-color: #2b6b52;
+  background: #0d1f1a;
+  color: #b6f0d2;
+}
+
 input[type="text"],
 input[type="number"],
 select,
@@ -484,12 +491,36 @@ label.field {
   overflow: hidden;
 }
 
+.preview-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #0a1220;
+  touch-action: none;
+}
+
+.preview-stage.zoomed {
+  cursor: grab;
+}
+
+.preview-stage.zoomed:active {
+  cursor: grabbing;
+}
+
 .preview-img {
   flex: 1;
   min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
   border-radius: 8px;
   background: #0a1220;
+  transition: transform 0.08s linear;
+  user-select: none;
 }
 
 .split-empty {

@@ -55,9 +55,13 @@ func (u *ui) poll() {
 				if job := u.data().job; job != nil && job.Status == "running" {
 					interval = time.Second
 				}
+				if u.data().op != nil {
+					// 后台在装依赖 / 下权重：快一点刷，进度条才跟得上
+					interval = time.Second
+				}
 				for _, m := range u.data().models {
 					if m.Status.State == "preparing" || m.Status.State == "loading" {
-						interval = 1200 * time.Millisecond
+						interval = time.Second
 						break
 					}
 				}
@@ -139,7 +143,7 @@ func (u *ui) footer() core.Node {
 				if d := u.data(); d.busy != "" {
 					return d.busy
 				}
-				return ""
+				return u.opLabel()
 			}, 11, func() core.Color { return u.pal().Accent }),
 			core.View{
 				Style:    core.Style{Direction: core.Row, Gap: 6, Padding: core.Edges{Top: 2}},

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ModelInfo } from "../types";
+import type { ModelInfo, ModelProgress } from "../types";
 
 const STATE_LABEL: Record<string, string> = {
   idle: "未启用",
@@ -41,12 +41,14 @@ function weightsText(model: ModelInfo): string | null {
 interface Props {
   model: ModelInfo;
   busy: string | null;
+  // 这条模型当前的后台进度（没有就是 undefined）
+  progress?: ModelProgress;
   onPrepare: (id: string, force: boolean) => void;
   onActivate: (id: string) => void;
   onDeactivate: (id: string) => void;
 }
 
-export default function ModelCard({ model, busy, onPrepare, onActivate, onDeactivate }: Props) {
+export default function ModelCard({ model, busy, progress, onPrepare, onActivate, onDeactivate }: Props) {
   const st = model.status;
   const pill = statePill(model);
   const weights = weightsText(model);
@@ -54,6 +56,9 @@ export default function ModelCard({ model, busy, onPrepare, onActivate, onDeacti
   const active = Boolean(st?.loaded) || st?.state === "ready" || st?.state === "running";
   // 权重和依赖都到位才给「启用」：不然点了只会报「先下载」，不如直接显示下载。
   const canActivate = usable && Boolean(st?.weights_ready) && Boolean(st?.extras_ready);
+  // 已经在后台跑了就别再让点：重复提交只会被后端 409 拒掉
+  const working = st?.state === "preparing" || st?.state === "loading";
+  const locked = busy !== null || working;
 
   const hint = useMemo(() => {
     if (!st) return "";
@@ -102,6 +107,17 @@ export default function ModelCard({ model, busy, onPrepare, onActivate, onDeacti
       {weights && <div className="small muted">{weights}</div>}
       {hint && <div className="small" style={{ color: "var(--warn)" }}>{hint}</div>}
 
+      {working && (
+        <div className="col" style={{ gap: 4 }}>
+          <div className="progress">
+            <span style={{ width: `${Math.round((progress?.percent ?? 0) * 100)}%` }} />
+          </div>
+          <span className="tiny muted">
+            {progress?.note || (st?.state === "loading" ? "正在加载进内存…" : "正在后台下载 / 安装，可以继续用别的功能…")}
+          </span>
+        </div>
+      )}
+
       {st?.repo && st.repo.reachable && (
         <div className="repo-line">
           <span className="mono">{st.repo.repo}</span>
@@ -119,29 +135,29 @@ export default function ModelCard({ model, busy, onPrepare, onActivate, onDeacti
         {model.weights === "hub" && (
           <button
             className="btn small"
-            disabled={busy !== null || !usable}
+            disabled={locked || !usable}
             onClick={() => onPrepare(model.id, false)}
           >
-            {st?.weights_ready ? "重新下载权重" : "下载权重"}
+            {working ? "准备中…" : st?.weights_ready ? "重新下载权重" : "下载权重"}
           </button>
         )}
         {model.weights === "auto" && model.engine !== "tesseract" && !st?.extras_ready && (
           <button
             className="btn small primary"
-            disabled={busy !== null || !usable}
+            disabled={locked || !usable}
             onClick={() => onPrepare(model.id, false)}
           >
-            安装依赖
+            {working ? "准备中…" : "安装依赖"}
           </button>
         )}
         {active ? (
-          <button className="btn small danger" disabled={busy !== null} onClick={() => onDeactivate(model.id)}>
+          <button className="btn small danger" disabled={locked} onClick={() => onDeactivate(model.id)}>
             卸载
           </button>
         ) : canActivate ? (
           <button
             className="btn small primary"
-            disabled={busy !== null}
+            disabled={locked}
             onClick={() => onActivate(model.id)}
           >
             启用

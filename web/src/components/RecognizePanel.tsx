@@ -44,6 +44,7 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const splitRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
   // 拖动分隔条：左列表占容器宽度的百分比，夹在 15%–60% 之间
   const startDrag = useCallback((event: React.MouseEvent) => {
@@ -113,6 +114,41 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
   const status = job?.status ?? "idle";
   const running = status === "running";
 
+  // 预览的缩放与平移：滚轮 / Ctrl+滚轮缩放，按住拖动看局部，按钮也能调
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+
+  // 换文件就把缩放和位移复位：不然上一张的视角会落到新图上
+  useEffect(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [selected, previewOpen]);
+
+  const clampPan = useCallback(
+    (next: { x: number; y: number }, z: number) => {
+      const box = stageRef.current;
+      if (!box || z <= 1) return { x: 0, y: 0 };
+      // 放大后允许拖动的范围是「多出来的那一半」，和桌面壳里算的一样
+      const limitX = (box.clientWidth * (z - 1)) / 2 / z;
+      const limitY = (box.clientHeight * (z - 1)) / 2 / z;
+      return {
+        x: Math.max(-limitX, Math.min(limitX, next.x)),
+        y: Math.max(-limitY, Math.min(limitY, next.y)),
+      };
+    },
+    [],
+  );
+
+  const applyZoom = useCallback(
+    (next: number) => {
+      const z = Math.max(1, Math.min(12, next));
+      setZoom(z);
+      setPan((prev) => clampPan(prev, z));
+    },
+    [clampPan],
+  );
+
   const start = useCallback(async () => {
     if (picked.length === 0) {
       onError("先选一张图片或 PDF");
@@ -177,7 +213,7 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
           />
 
           <div className="row between" style={{ marginBottom: 8 }}>
-            <button className="btn small primary" onClick={() => inputRef.current?.click()} disabled={running}>
+            <button className="btn small primary" onClick={() => inputRef.current?.click()}>
               选择文件
             </button>
             <span className="muted tiny">
@@ -189,7 +225,7 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
                 {previewOpen ? "收起预览" : "展开预览"}
               </button>
             )}
-            {picked.length > 0 && !running && (
+            {picked.length > 0 && (
               <button
                 className="btn small ghost"
                 onClick={() => {
@@ -275,10 +311,42 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
                   aria-orientation="vertical"
                 />
                 <div className="split-preview">
-                  <div className="row between">
-                    <span className="small mono" style={{ wordBreak: "break-all" }}>
+                  <div className="row between" style={{ gap: 6 }}>
+                    <span className="small mono grow" style={{ wordBreak: "break-all" }}>
                       {picked[selected]?.file.name ?? ""}
                     </span>
+                    {picked[selected]?.preview && (
+                      <>
+                        <button
+                          className="btn small ghost"
+                          disabled={zoom <= 1}
+                          aria-label="缩小"
+                          onClick={() => applyZoom(zoom / 1.25)}
+                        >
+                          －
+                        </button>
+                        <span className="tiny muted mono" style={{ minWidth: 40, textAlign: "center" }}>
+                          {Math.round(zoom * 100)}%
+                        </span>
+                        <button
+                          className="btn small ghost"
+                          aria-label="放大"
+                          onClick={() => applyZoom(zoom * 1.25)}
+                        >
+                          ＋
+                        </button>
+                        <button
+                          className="btn small ghost"
+                          disabled={zoom <= 1}
+                          onClick={() => {
+                            setZoom(1);
+                            setPan({ x: 0, y: 0 });
+                          }}
+                        >
+                          适应
+                        </button>
+                      </>
+                    )}
                     <button
                       className="btn small ghost"
                       aria-label="关闭预览"
@@ -288,11 +356,53 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
                     </button>
                   </div>
                   {picked[selected]?.preview ? (
-                    <img className="preview-img" src={picked[selected].preview ?? ""} alt="" />
+                    <div
+                      className={`preview-stage ${zoom > 1 ? "zoomed" : ""}`}
+                      ref={stageRef}
+                      onWheel={(e) => {
+                        // Ctrl / Cmd + 滚轮或纯滚轮都能缩放；Shift+滚轮留给外面滚动
+                        if (e.shiftKey) return;
+                        e.preventDefault();
+                        applyZoom(zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12));
+                      }}
+                      onPointerDown={(e) => {
+                        if (zoom <= 1) return;
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+                      }}
+                      onPointerMove={(e) => {
+                        const drag = dragRef.current;
+                        if (!drag) return;
+                        const next = {
+                          x: drag.px + (e.clientX - drag.x),
+                          y: drag.py + (e.clientY - drag.y),
+                        };
+                        setPan(clampPan(next, zoom));
+                      }}
+                      onPointerUp={() => {
+                        dragRef.current = null;
+                      }}
+                      onPointerCancel={() => {
+                        dragRef.current = null;
+                      }}
+                    >
+                      <img
+                        className="preview-img"
+                        src={picked[selected].preview ?? ""}
+                        alt=""
+                        draggable={false}
+                        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+                      />
+                    </div>
                   ) : (
                     <div className="split-empty">
                       PDF 要等识别后才能在结果里看每一页；这里只显示图片预览。
                     </div>
+                  )}
+                  {picked[selected]?.preview && (
+                    <span className="tiny muted">
+                      {zoom > 1 ? "拖动看局部 · 滚轮继续缩放 · 点「适应」回全图" : "滚轮或 ＋ 放大后可以拖着看局部"}
+                    </span>
                   )}
                 </div>
               </>
@@ -301,7 +411,7 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
 
           <label className="field">
             识别模型
-            <select value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={running}>
+            <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
               {usable.length === 0 && <option value="">没有可用模型（先在「模型」页启用）</option>}
               {usable.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -321,7 +431,6 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
                 min={1}
                 max={500}
                 value={maxPages}
-                disabled={running}
                 onChange={(e) => setMaxPages(Math.max(1, Number(e.target.value) || 1))}
               />
             </label>
@@ -333,7 +442,6 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
                 max={400}
                 step={10}
                 value={pdfDpi}
-                disabled={running}
                 onChange={(e) => setPdfDpi(Math.max(72, Number(e.target.value) || 200))}
               />
             </label>
@@ -348,6 +456,8 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
                 取消
               </button>
             )}
+            <span className="grow" />
+            {running && <span className="tiny muted">任务在后台跑，可以继续选文件、调参数</span>}
           </div>
         </div>
 
@@ -377,7 +487,7 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
           <ResultViewer result={result} jobId={job?.id} onExport={exportFile} />
         ) : (
           <div className="empty">
-            {running ? "识别进行中，进度见左侧。" : "识别完成后这里显示 text / markdown / 分块结果。"}
+            {running ? "识别在后台进行中，结果好了这里自动出现（进度见左侧）。" : "识别完成后这里显示 text / markdown / 分块结果。"}
           </div>
         )}
       </div>

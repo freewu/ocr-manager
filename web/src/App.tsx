@@ -6,9 +6,17 @@ import LogPanel from "./components/LogPanel";
 import ModelsPanel from "./components/ModelsPanel";
 import RecognizePanel from "./components/RecognizePanel";
 import SettingsPanel from "./components/SettingsPanel";
-import type { AppEvent, AppInfo, EnvStatus, GpuInfo, Job, ModelInfo, Settings } from "./types";
+import type { AppEvent, AppInfo, EnvStatus, GpuInfo, Job, ModelInfo, ModelProgress, Settings } from "./types";
 
 const MAX_EVENTS = 400;
+
+// mb 把字节写成给人看的样子（进度里用）。
+function mb(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
 
 type Tab = "recognize" | "models" | "history" | "logs";
 
@@ -39,6 +47,10 @@ export default function App() {
   const [showEnv, setShowEnv] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [historyRevision, setHistoryRevision] = useState(0);
+  // 每条模型最近一次的后台进度（下载百分比 / 装依赖说明），靠 SSE 的 progress 事件攒
+  const [progress, setProgress] = useState<Record<string, ModelProgress>>({});
+  // 刚点下按钮、后端还没把 op 报到 /api/info 时先用这句顶上
+  const [opNote, setOpNote] = useState<string | null>(null);
 
   const jobRef = useRef<Job | null>(null);
   jobRef.current = job;
@@ -64,14 +76,16 @@ export default function App() {
       setEnv(data.env);
       setGpu(data.gpu);
       setSettings(data.settings);
+      // 后台任务已经结束就把本地的乐观提示清掉
+      if (!data.op) setOpNote(null);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     }
   }, [onError]);
 
-  const refreshEnv = useCallback(async () => {
+  const refreshEnv = useCallback(async (fresh = false) => {
     try {
-      const data = await api.env();
+      const data = await api.env(fresh);
       setEnv(data.env);
       setEnvInfo({
         venv_python: data.python ?? "",
@@ -100,11 +114,24 @@ export default function App() {
       });
   }, [refreshAll]);
 
-  // 兜底轮询：后台任务 / Hub 预热完成后即使漏了 SSE 事件也能看到新状态
+  // 兜底轮询：后台任务 / Hub 预热完成后即使漏了 SSE 事件也能看到新状态。
+  // 有后台任务在跑时快一点采样，进度条才跟得上；闲下来就回到 15 秒省资源。
+  const opRunning = useMemo(
+    () =>
+      Boolean(info?.op) ||
+      models.some((m) => m.status?.state === "preparing" || m.status?.state === "loading"),
+    [info?.op, models],
+  );
   useEffect(() => {
-    const timer = window.setInterval(() => void refreshModels(false), 15000);
+    const timer = window.setInterval(
+      () => {
+        void refreshModels(false);
+        void refreshInfo();
+      },
+      opRunning ? 1500 : 15000,
+    );
     return () => window.clearInterval(timer);
-  }, [refreshModels]);
+  }, [refreshModels, refreshInfo, opRunning]);
 
   // SSE：日志流 + 任务快照；status/env 变化时刷新模型列表
   useEffect(() => {
@@ -138,6 +165,19 @@ export default function App() {
           break;
         }
         case "progress": {
+          // 模型自己的下载 / 装依赖进度：按 source 归到卡上（识别任务的进度另算）
+          if (ev.source && !ev.job) {
+            const source = ev.source;
+            const note = [ev.stage, ev.message].filter(Boolean).join(" ");
+            const size =
+              ev.bytes && ev.bytes.total > 0
+                ? `${mb(ev.bytes.done)} / ${mb(ev.bytes.total)}`
+                : "";
+            setProgress((prev) => ({
+              ...prev,
+              [source]: { percent: ev.percent ?? null, note: [note, size].filter(Boolean).join(" · ") },
+            }));
+          }
           const current = jobRef.current;
           if (current && (!ev.job || ev.job === current.id)) {
             setJob({
@@ -178,10 +218,36 @@ export default function App() {
     [refreshModels, refreshEnv],
   );
 
+  // 长任务（下权重 / 装依赖 / 重建 venv）只负责
+  // 「发出去 → 刷新」，不占 busy：界面照常能点、能切页，进度靠轮询推进。
+  const startOp = useCallback(
+    (label: string, fn: () => Promise<unknown>) => {
+      setOpNote(label);
+      setError(null);
+      void fn()
+        .catch((err) => {
+          setOpNote(null);
+          setError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          void refreshModels(false);
+          void refreshInfo();
+        });
+    },
+    [refreshModels, refreshInfo],
+  );
+
   const onPrepare = useCallback(
-    (id: string, force: boolean) =>
-      guard(`准备 ${id}`, () => api.prepare(id, force), () => void refreshEnv()),
-    [guard, refreshEnv],
+    (id: string, force: boolean) => {
+      // 先本地翻成「正在准备」：点完立刻有反馈，重复点也没事（后端会拒）
+      setModels((prev) =>
+        prev.map((m) =>
+          m.id === id ? { ...m, status: { ...m.status, state: "preparing", message: "正在安装依赖…" } } : m,
+        ),
+      );
+      startOp(`准备 ${id}`, () => api.prepare(id, force));
+    },
+    [startOp],
   );
   const onActivate = useCallback((id: string) => guard(`启用 ${id}`, () => api.activate(id)), [guard]);
   const onDeactivate = useCallback(
@@ -211,13 +277,11 @@ export default function App() {
   );
 
   const onInstallEnv = useCallback(
-    (extras: string[]) => guard(`安装依赖 ${extras.join(",") || "全部"}`, () => api.installEnv(extras)),
-    [guard],
+    (extras: string[]) =>
+      startOp(`安装依赖 ${extras.join(",") || "全部"}`, () => api.installEnv(extras)),
+    [startOp],
   );
-  const onRecreateEnv = useCallback(
-    () => guard("重建 venv", () => api.recreateEnv()),
-    [guard],
-  );
+  const onRecreateEnv = useCallback(() => startOp("重建 venv", () => api.recreateEnv()), [startOp]);
   const onSelectBase = useCallback(
     (base: string | null) => guard("切换基础解释器", () => api.selectBasePython(base)),
     [guard],
@@ -225,6 +289,8 @@ export default function App() {
 
   const activeModel = useMemo(() => models.find((m) => m.status?.state === "ready" || m.status?.state === "running"), [models]);
   const envReady = env?.state === "ready";
+  // 顶栏与横幅上的「后台在干什么」：后端自报的 op 优先，刚点下去的那一下用本地提示
+  const opLabel = info?.op?.label ?? opNote;
 
   return (
     <div className="app">
@@ -288,6 +354,7 @@ export default function App() {
                 准备环境
               </button>
             )}
+            {opLabel && <span className="pill pill-warn" title="后台任务不会堵住界面">{opLabel}</span>}
             <button
               className="btn small ghost"
               disabled={busy !== null}
@@ -304,6 +371,11 @@ export default function App() {
           </div>
         )}
         {busy && <div className="banner">{busy}…（详细过程见「日志」页）</div>}
+        {opLabel && (
+          <div className="banner banner-op">
+            {opLabel} 正在后台进行，可以继续操作（进度见「日志」页与模型卡）
+          </div>
+        )}
 
         {tab === "recognize" && (
           <RecognizePanel
@@ -324,6 +396,7 @@ export default function App() {
                 gpu={gpu}
                 busy={busy}
                 envReady={envReady}
+                progress={progress}
                 onPrepare={onPrepare}
                 onActivate={onActivate}
                 onDeactivate={onDeactivate}
@@ -351,11 +424,11 @@ export default function App() {
         env={env}
         python={envInfo.detected}
         venv={envInfo.venv_python}
-        busy={busy}
+        busy={busy ?? (info?.op ? info.op.label : null)}
         onInstall={onInstallEnv}
         onRecreate={onRecreateEnv}
         onSelectBase={onSelectBase}
-        onDetect={() => void refreshEnv()}
+        onDetect={() => void refreshEnv(true)}
       />
 
       <SettingsPanel

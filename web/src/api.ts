@@ -72,8 +72,9 @@ export const api = {
     return fetch(`${BASE}/api/models/${id}/deactivate`, { method: "POST" }).then(toJson);
   },
 
-  env(): Promise<EnvBody> {
-    return fetch(`${BASE}/api/env`).then((res) => toJson<EnvBody>(res));
+  // fresh 为 true 时让后端丢掉探测缓存真跑一遍（装完依赖后点「重新检测」用）
+  env(fresh = false): Promise<EnvBody> {
+    return fetch(`${BASE}/api/env${fresh ? "?refresh=1" : ""}`).then((res) => toJson<EnvBody>(res));
   },
   installEnv(extras: string[] = []): Promise<unknown> {
     return jsonPost("/api/env/install", { extras }).then(toJson);

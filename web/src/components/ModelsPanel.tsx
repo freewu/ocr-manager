@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { GpuInfo, ModelInfo } from "../types";
+import type { GpuInfo, ModelInfo, ModelProgress } from "../types";
 import ModelCard from "./ModelCard";
 
 type Filter = "all" | "ready" | "missing" | "gpu" | "external";
@@ -33,6 +33,8 @@ interface Props {
   gpu: GpuInfo | null;
   busy: string | null;
   envReady: boolean;
+  // 每条模型的后台进度（下载百分比 / 装依赖说明）
+  progress: Record<string, ModelProgress>;
   onPrepare: (id: string, force: boolean) => void;
   onActivate: (id: string) => void;
   onDeactivate: (id: string) => void;
@@ -44,6 +46,7 @@ export default function ModelsPanel({
   gpu,
   busy,
   envReady,
+  progress,
   onPrepare,
   onActivate,
   onDeactivate,
@@ -115,6 +118,7 @@ export default function ModelsPanel({
           key={model.id}
           model={model}
           busy={busy}
+          progress={progress[model.id]}
           onPrepare={onPrepare}
           onActivate={onActivate}
           onDeactivate={onDeactivate}

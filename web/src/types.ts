@@ -183,6 +183,7 @@ export interface AppInfo {
   active: string;
   settings: Settings;
   env: EnvStatus;
+  op?: Op | null;
   gpu: GpuInfo;
   models: number;
   visible: number;
@@ -240,6 +241,20 @@ export interface JobEvent {
   type: "job";
   ts: number;
   data: Job;
+}
+
+/** core.Op 是后端正在跑的后台任务（装依赖 / 下权重 / 重建 venv）。 */
+export interface Op {
+  kind: string;
+  model?: string;
+  label: string;
+  started: number;
+}
+
+/** 一条模型的后台进度：百分比 + 一句说明。 */
+export interface ModelProgress {
+  percent: number | null;
+  note: string;
 }
 
 export type AppEvent = LogEvent | ProgressEvent | StatusEvent | EnvEvent | JobEvent;

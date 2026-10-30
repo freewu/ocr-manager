@@ -48,7 +48,7 @@ func TestClientAgainstRealServer(t *testing.T) {
 		}
 	}
 
-	env, err := cl.env(ctx)
+	env, err := cl.env(ctx, true)
 	if err != nil {
 		t.Fatalf("取 env 失败：%v", err)
 	}

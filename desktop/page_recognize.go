@@ -68,8 +68,9 @@ func (u *ui) inputCard(running bool) core.Node {
 		row(10,
 			u.strong(fixed("输入文件"), 14, func() core.Color { return u.pal().Text }),
 			fill(u.muted(count, 11)),
-			u.button(fixed("选择文件"), buttonPrimary, func() bool { return running }, u.pickInputs, "recognize-pick"),
-			u.button(fixed("清空"), buttonQuiet, func() bool { return running || len(u.st.files) == 0 }, u.clearInputs, "recognize-clear"),
+			// 识别跑在后台，选文件 / 清空随时能用，不用等任务做完
+			u.button(fixed("选择文件"), buttonPrimary, nil, u.pickInputs, "recognize-pick"),
+			u.button(fixed("清空"), buttonQuiet, func() bool { return len(u.st.files) == 0 }, u.clearInputs, "recognize-clear"),
 		),
 		u.splitPane(),
 		row(10,
@@ -96,7 +97,7 @@ func (u *ui) inputCard(running bool) core.Node {
 			},
 			fill(u.muted(func() string {
 				if running {
-					return "任务在后台跑，可以先去别的页看日志"
+					return "识别在后台跑：可以继续选文件、看预览、切到别的页"
 				}
 				return ""
 			}, 11)),
@@ -246,9 +247,11 @@ func (u *ui) fileRow(file pickedFile) core.Node {
 	}
 }
 
-// previewPane 是右侧预览：图片直接看，PDF 给一句说明。
+// previewPane 是右侧预览：图片能放大、能拖着看，PDF 给一句说明。
 func (u *ui) previewPane() core.Node {
 	file, hasFile := u.inputAt(u.selFile.Get())
+	zoomable := hasFile && len(u.st.previewData) > 0
+
 	head := row(8,
 		fill(u.text(func() string {
 			if !hasFile {
@@ -256,6 +259,19 @@ func (u *ui) previewPane() core.Node {
 			}
 			return file.Name
 		}, 12, func() core.Color { return u.pal().Text })),
+		core.Show{
+			When: func() bool { return zoomable },
+			Then: func(*core.Scope) core.Node {
+				return row(4,
+					u.button(fixed("－"), buttonQuiet, func() bool {
+						return u.previewZoom.Get() <= previewZoomFit
+					}, u.zoomOut, "recognize-zoom-out"),
+					u.muted(func() string { return u.previewZoomText() }, 11),
+					u.button(fixed("＋"), buttonQuiet, nil, u.zoomIn, "recognize-zoom-in"),
+					u.button(fixed("适应"), buttonQuiet, nil, u.resetZoom, "recognize-zoom-fit"),
+				)
+			},
+		},
 		base.Button{
 			TestID:  "recognize-close-preview",
 			OnPress: func(core.PressEvent) { u.previewOpen.Set(false) },
@@ -275,17 +291,52 @@ func (u *ui) previewPane() core.Node {
 			Children: []core.Node{u.muted(fixed("在左边点一个文件，这里就显示预览"), 11)},
 		}
 	case len(u.st.previewData) > 0:
-		body = core.Image{
-			TestID:     "recognize-preview-image",
-			SourceFunc: func() core.ImageSource { return core.ImageSource{Data: u.st.previewData} },
-			ResizeMode: core.Contain,
-			Style:      core.Style{FlexGrow: 1, Width: core.Pct(100), MinHeight: core.Pt(120), CornerRadius: 8},
+		body = core.View{
+			TestID:   "recognize-preview-stage",
+			OnPan:    u.onPreviewPan,
+			OnPinch:  u.onPreviewPinch,
+			OnLayout: func(b core.Bounds) { u.previewBox = b },
+			StyleFunc: func() core.Style {
+				p := u.pal()
+				return core.Style{
+					FlexGrow: 1, Width: core.Pct(100), MinHeight: core.Pt(120),
+					CornerRadius: 8, Overflow: core.Hidden,
+					Background: p.SurfacePressed.Faded(0.5),
+				}
+			},
+			Children: []core.Node{core.Image{
+				TestID:     "recognize-preview-image",
+				SourceFunc: func() core.ImageSource { return core.ImageSource{Data: u.st.previewData} },
+				ResizeMode: core.Contain,
+				StyleFunc: func() core.Style {
+					zoom := u.previewZoom.Get()
+					pan := u.previewPan.Get()
+					return core.Style{
+						Width: core.Pct(100), Height: core.Pct(100),
+						Transform: core.Transform{
+							Scale:      zoom,
+							TranslateX: pan.X,
+							TranslateY: pan.Y,
+						},
+					}
+				},
+			}},
 		}
 	default:
 		body = core.View{
 			Style:    core.Style{FlexGrow: 1, Padding: core.All(10), Gap: 6, JustifyContent: core.JustifyCenter},
 			Children: []core.Node{u.muted(fixed(u.st.previewNote), 11)},
 		}
+	}
+
+	children := []core.Node{head, body}
+	if zoomable {
+		children = append(children, u.muted(func() string {
+			if u.previewZoom.Get() > previewZoomFit {
+				return "拖动可以拉看局部 · Ctrl+滚轮（或触控板捏合）也能缩放 · 点「适应」回到全图"
+			}
+			return "点「＋」放大后可以拖着看局部"
+		}, 10))
 	}
 
 	return core.View{
@@ -296,7 +347,7 @@ func (u *ui) previewPane() core.Node {
 				CornerRadius: 9, BorderWidth: 1, BorderColor: p.Border, Background: p.Background,
 			}
 		},
-		Children: []core.Node{head, body},
+		Children: children,
 	}
 }
 

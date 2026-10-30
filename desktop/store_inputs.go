@@ -85,9 +85,12 @@ func (u *ui) hasInput(path string) bool {
 func (u *ui) selectInput(path string) {
 	file, ok := u.inputAt(path)
 	u.selFile.Set(path)
+	// 换文件就回到「适应面板」，别带着上一张的缩放和位移
+	u.resetZoom()
 	if !ok {
 		u.post(func() {
 			u.st.previewData, u.st.previewNote = nil, ""
+			u.setPreviewSize(nil)
 			u.bump()
 		})
 		return
@@ -97,6 +100,8 @@ func (u *ui) selectInput(path string) {
 		data, note := readPreview(file)
 		u.post(func() {
 			u.st.previewData, u.st.previewNote = data, note
+			u.setPreviewSize(data)
+			u.resetZoom()
 			u.bump()
 		})
 	}()
@@ -151,6 +156,8 @@ func (u *ui) removeInput(path string) {
 				}
 			}
 			u.st.previewData, u.st.previewNote = data, note
+			u.setPreviewSize(data)
+			u.resetZoom()
 		}
 		u.bump()
 	})
@@ -161,6 +168,8 @@ func (u *ui) clearInputs() {
 	u.post(func() {
 		u.st.files = nil
 		u.st.previewData, u.st.previewNote = nil, ""
+		u.setPreviewSize(nil)
+		u.resetZoom()
 		u.selFile.Set("")
 		u.bump()
 	})

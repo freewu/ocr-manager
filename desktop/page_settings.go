@@ -115,14 +115,14 @@ func (u *ui) envCard(info *AppInfo) core.Node {
 			label = name + " ✓"
 		}
 		buttons = append(buttons, u.button(fixed(label), buttonQuiet,
-			func() bool { return u.data().busy != "" },
+			func() bool { return u.opBusy() },
 			func() { u.installEnv([]string{name}) }))
 	}
 	buttons = append(buttons,
-		u.button(fixed("装全部"), buttonQuiet, func() bool { return u.data().busy != "" }, func() {
+		u.button(fixed("装全部"), buttonQuiet, func() bool { return u.opBusy() }, func() {
 			u.installEnv(nil)
 		}),
-		u.button(fixed("重建 venv"), buttonDanger, func() bool { return u.data().busy != "" }, u.recreateEnv),
+		u.button(fixed("重建 venv"), buttonDanger, func() bool { return u.opBusy() }, u.recreateEnv),
 	)
 
 	probes := "—"
@@ -193,7 +193,7 @@ func (u *ui) gpuCard(info *AppInfo) core.Node {
 				}
 				return "VLM 类模型（dots.ocr / DeepSeek-OCR）必须有 CUDA"
 			}, 11)),
-			u.button(fixed("重新检测"), buttonQuiet, nil, u.refresh),
+			u.button(fixed("重新检测"), buttonQuiet, nil, u.reprobeEnv),
 		),
 	}
 	for _, d := range gpu.Devices {

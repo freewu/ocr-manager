@@ -53,6 +53,9 @@ type Core struct {
 	// prepareMu 让「下载 / 装依赖」串行：pip 和 HF 下载并发只会互相拖慢。
 	prepareMu sync.Mutex
 
+	// op 是正在跑的后台长任务（装依赖 / 下权重 / 重建 venv）。
+	op opSlot
+
 	// envStatus 缓存 python 模块探测结果（起子进程，别每次刷新都跑）。
 	envStatus *pyenv.EnvStatus
 	envAt     time.Time
@@ -168,8 +171,15 @@ func (c *Core) SetLayout(layout paths.Layout) (paths.Layout, error) {
 	return next, nil
 }
 
-// ReloadEnv 重读基础解释器设置。
+// ReloadEnv 重读基础解释器设置，顺手把缓存的那份探测结果也换掉。
+//
+// 装完依赖 / 重建 venv 之后调它：不然界面在 30 秒缓存过期前还会显示旧的
+// 「缺依赖」，看着像没装上。
 func (c *Core) ReloadEnv() {
 	status := c.Env.Status()
+	c.mu.Lock()
+	c.envStatus = &status
+	c.envAt = time.Now()
+	c.mu.Unlock()
 	c.Bus.Env(status.State, status.Message)
 }

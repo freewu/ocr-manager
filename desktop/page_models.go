@@ -171,7 +171,14 @@ func (u *ui) modelCard(m ModelInfo) core.Node {
 	}
 
 	if m.Status.State == "preparing" || m.Status.State == "loading" {
-		children = append(children, u.progressBar(func() *float64 { return nil }))
+		// 下载 / 装依赖的百分比来自事件流（worker 的 progress），有就画真的，没有就来回跑
+		children = append(children, u.progressBar(func() *float64 {
+			pct, _ := u.modelProgress(id)
+			return pct
+		}))
+		if _, note := u.modelProgress(id); note != "" {
+			children = append(children, u.muted(fixed(note), 11))
+		}
 	}
 
 	children = append(children, row(8,
@@ -214,6 +221,12 @@ func (u *ui) modelActions(m ModelInfo) []core.Node {
 	switch {
 	case st == "unavailable":
 		return []core.Node{u.chip(fixed("本机不可用"), func() core.Color { return u.pal().TextMuted })}
+	case st == "preparing":
+		// 下载 / 装依赖在后台跑：这时候再点一次只会排第二遍，干脆只给状态
+		out = append(out, u.chip(fixed("正在准备…"), func() core.Color { return u.pal().Warning }))
+		return out
+	case st == "loading":
+		return []core.Node{u.chip(fixed("正在加载…"), func() core.Color { return u.pal().Accent })}
 	case st == "ready" || st == "running" || m.Status.Loaded:
 		out = append(out, u.button(fixed("卸载"), buttonQuiet, busy, func() { u.deactivate(id) }))
 	case st == "error":

@@ -145,12 +145,29 @@ type AppInfo struct {
 	Active    string            `json:"active"`
 	Settings  Settings          `json:"settings"`
 	Env       EnvStatus         `json:"env"`
+	Op        *Op               `json:"op"`
 	GPU       GpuInfo           `json:"gpu"`
 	Models    int               `json:"models"`
 	Visible   int               `json:"visible"`
 	Sources   []string          `json:"sources"`
 	Tesseract string            `json:"tesseract"`
 	Docs      map[string]string `json:"docs"`
+}
+
+// Op 是后端正在跑的后台任务（装依赖 / 下权重 / 重建 venv）。
+type Op struct {
+	Kind    string `json:"kind"`
+	Model   string `json:"model"`
+	Label   string `json:"label"`
+	Started int64  `json:"started"`
+}
+
+// ElapsedMS 返回后台任务已经跑了多久。
+func (o *Op) ElapsedMS() int64 {
+	if o == nil || o.Started == 0 {
+		return 0
+	}
+	return nowMilli() - o.Started
 }
 
 // Block 是识别结果里的一块内容。
@@ -366,11 +383,15 @@ func (c *client) deactivate(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/api/models/"+id+"/deactivate", nil, nil)
 }
 
-func (c *client) env(ctx context.Context) (EnvStatus, error) {
+func (c *client) env(ctx context.Context, refresh bool) (EnvStatus, error) {
 	var body struct {
 		Env EnvStatus `json:"env"`
 	}
-	err := c.do(ctx, http.MethodGet, "/api/env", nil, &body)
+	path := "/api/env"
+	if refresh {
+		path += "?refresh=1"
+	}
+	err := c.do(ctx, http.MethodGet, path, nil, &body)
 	return body.Env, err
 }
 

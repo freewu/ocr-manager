@@ -220,12 +220,16 @@ func (c *Core) statusOf(spec models.ModelSpec, refresh bool) ModelStatus {
 // envStatusCached 缓存 python 探测结果（起子进程，别每次刷新都跑）。
 func (c *Core) envStatusCached() (pyenv.EnvStatus, error) {
 	c.mu.Lock()
-	if c.envStatus != nil && time.Since(c.envAt) < 30*time.Second {
-		status := *c.envStatus
-		c.mu.Unlock()
-		return status, nil
-	}
+	cached := c.envStatus
+	fresh := cached != nil && time.Since(c.envAt) < 30*time.Second
 	c.mu.Unlock()
+	if cached != nil && fresh {
+		return *cached, nil
+	}
+	// 装依赖 / 下权重期间 venv 正在被改：起子进程探测又慢又会误报，直接用上一份结果。
+	if cached != nil && c.op.busy() {
+		return *cached, nil
+	}
 
 	status := c.Env.Status()
 	c.mu.Lock()
@@ -235,8 +239,14 @@ func (c *Core) envStatusCached() (pyenv.EnvStatus, error) {
 	return status, nil
 }
 
-// EnvStatus 强制重算 python 环境状态。
+// EnvStatus 返回 python 环境状态（30 秒内的缓存直接用，别再起子进程）。
 func (c *Core) EnvStatus() pyenv.EnvStatus {
+	status, _ := c.envStatusCached()
+	return status
+}
+
+// EnvStatusFresh 丢掉缓存重新探测（用户在界面上点「重新检测」时用）。
+func (c *Core) EnvStatusFresh() pyenv.EnvStatus {
 	c.mu.Lock()
 	c.envStatus = nil
 	c.mu.Unlock()

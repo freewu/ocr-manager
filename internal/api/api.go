@@ -219,6 +219,7 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"active":    s.Core.ActiveModel(),
 		"settings":  settings,
 		"env":       env,
+		"op":        s.Core.CurrentOp(),
 		"gpu":       s.Core.GPU,
 		"models":    len(s.Core.Catalog.All()),
 		"visible":   len(s.Core.Catalog.Visible()),
@@ -272,11 +273,11 @@ func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() {
-		if err := s.Core.Prepare(id, force); err != nil {
-			s.Core.Bus.Error(id, "准备失败："+err.Error())
-		}
-	}()
+	// 真正干活在后台：HTTP 立刻返回 202，已经在跑就回 409（别让人叠一堆下载）。
+	if err := s.Core.StartPrepare(id, force); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "started": true, "model": id})
 }
 
@@ -302,9 +303,14 @@ func (s *Server) handleDeactivate(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- python 环境
 
 func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
+	// 起 python 子进程有成本：默认给缓存，用户点「重新检测」才用 ?refresh=1 真探一遍。
+	env := s.Core.EnvStatus()
+	if r.URL.Query().Get("refresh") == "1" {
+		env = s.Core.EnvStatusFresh()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":       true,
-		"env":      s.Core.EnvStatus(),
+		"env":      env,
 		"python":   s.Core.Env.VenvPython(),
 		"venv":     s.Core.Env.VenvDir(),
 		"base":     s.Core.Env.Base(),
@@ -317,22 +323,18 @@ func (s *Server) handleEnvInstall(w http.ResponseWriter, r *http.Request) {
 		Extras []string `json:"extras"`
 	}
 	_ = decodeJSON(r, &body)
-	go func() {
-		if err := s.Core.Env.Install(s.Core.Bus, body.Extras); err != nil {
-			s.Core.Bus.Error("pip", err.Error())
-		}
-		s.Core.ReloadEnv()
-	}()
+	if err := s.Core.StartEnvInstall(body.Extras); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "started": true})
 }
 
 func (s *Server) handleEnvRecreate(w http.ResponseWriter, r *http.Request) {
-	go func() {
-		if err := s.Core.Env.RecreateVenv(s.Core.Bus); err != nil {
-			s.Core.Bus.Error("python", err.Error())
-		}
-		s.Core.ReloadEnv()
-	}()
+	if err := s.Core.StartEnvRecreate(); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "started": true})
 }
 
