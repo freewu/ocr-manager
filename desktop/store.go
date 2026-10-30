@@ -33,6 +33,11 @@ type store struct {
 	history   []HistoryEntry
 	job       *Job
 	result    *OcrResult
+	// files 是识别页选进来的输入（图片 / PDF，可混选多个）
+	files []pickedFile
+	// previewData 是预览面板要显示的图片字节；previewNote 说明为什么没图
+	previewData []byte
+	previewNote string
 	// detail 是历史页选中的那一条（entry + 结果）。
 	detail  *historyDetail
 	busy    string
@@ -72,44 +77,53 @@ type ui struct {
 
 	page  *core.Signal[string]
 	model *core.Signal[string]
-	// paths 是识别页的输入路径（每行一个：图片或 PDF）
-	paths     *core.Signal[string]
-	maxPages  *core.Signal[string]
-	pdfDPI    *core.Signal[string]
-	filter    *core.Signal[string]
-	histSel   *core.Signal[string]
-	resultTab *core.Signal[string]
-	pageIdx   *core.Signal[int]
-	basePy    *core.Signal[string]
-	modelsDir *core.Signal[string]
-	outDir    *core.Signal[string]
-	hfEp      *core.Signal[string]
-	maxSide   *core.Signal[string]
+	// pickPath 是「手动添加路径」输入框
+	pickPath *core.Signal[string]
+	// selFile 是左侧列表里选中的文件（预览跟着它走）
+	selFile *core.Signal[string]
+	// previewOpen 控制右侧预览面板显不显示（可以整块关掉，列表就占满宽度）
+	previewOpen *core.Signal[bool]
+	// resultFile 是结果区选中的文件 tab
+	resultFile *core.Signal[string]
+	maxPages   *core.Signal[string]
+	pdfDPI     *core.Signal[string]
+	filter     *core.Signal[string]
+	histSel    *core.Signal[string]
+	resultTab  *core.Signal[string]
+	pageIdx    *core.Signal[int]
+	basePy     *core.Signal[string]
+	modelsDir  *core.Signal[string]
+	outDir     *core.Signal[string]
+	hfEp       *core.Signal[string]
+	maxSide    *core.Signal[string]
 
 	refreshing atomic.Bool
 }
 
 func newUI(cx *core.Scope) *ui {
 	u := &ui{
-		cx:        cx,
-		ctx:       cx.Context(),
-		cl:        newClient(apiBase()),
-		st:        &store{status: "正在启动…", expanded: map[string]bool{}},
-		rev:       core.NewSignal(cx, 0),
-		page:      core.NewSignal(cx, "recognize"),
-		model:     core.NewSignal(cx, ""),
-		paths:     core.NewSignal(cx, ""),
-		maxPages:  core.NewSignal(cx, "20"),
-		pdfDPI:    core.NewSignal(cx, "200"),
-		filter:    core.NewSignal(cx, filterAll),
-		histSel:   core.NewSignal(cx, ""),
-		resultTab: core.NewSignal(cx, "text"),
-		pageIdx:   core.NewSignal(cx, 0),
-		basePy:    core.NewSignal(cx, ""),
-		modelsDir: core.NewSignal(cx, ""),
-		outDir:    core.NewSignal(cx, ""),
-		hfEp:      core.NewSignal(cx, ""),
-		maxSide:   core.NewSignal(cx, ""),
+		cx:          cx,
+		ctx:         cx.Context(),
+		cl:          newClient(apiBase()),
+		st:          &store{status: "正在启动…", expanded: map[string]bool{}},
+		rev:         core.NewSignal(cx, 0),
+		page:        core.NewSignal(cx, "recognize"),
+		model:       core.NewSignal(cx, ""),
+		pickPath:    core.NewSignal(cx, ""),
+		selFile:     core.NewSignal(cx, ""),
+		previewOpen: core.NewSignal(cx, true),
+		resultFile:  core.NewSignal(cx, ""),
+		maxPages:    core.NewSignal(cx, "20"),
+		pdfDPI:      core.NewSignal(cx, "200"),
+		filter:      core.NewSignal(cx, filterAll),
+		histSel:     core.NewSignal(cx, ""),
+		resultTab:   core.NewSignal(cx, "text"),
+		pageIdx:     core.NewSignal(cx, 0),
+		basePy:      core.NewSignal(cx, ""),
+		modelsDir:   core.NewSignal(cx, ""),
+		outDir:      core.NewSignal(cx, ""),
+		hfEp:        core.NewSignal(cx, ""),
+		maxSide:     core.NewSignal(cx, ""),
 	}
 	cx.Cleanup(stopServer)
 	return u
@@ -307,9 +321,12 @@ func (u *ui) deactivate(id string) {
 
 // recognize 提交识别：路径来自识别页的文本框（每行一个）。
 func (u *ui) recognize() {
-	paths := splitPaths(u.paths.Get())
+	paths := make([]string, 0, len(u.st.files))
+	for _, file := range u.st.files {
+		paths = append(paths, file.Path)
+	}
 	if len(paths) == 0 {
-		u.post(func() { u.st.fail("先填要识别的图片 / PDF 路径（每行一个）") })
+		u.post(func() { u.st.fail("先选要识别的图片 / PDF（点「选择文件」，或手动粘贴路径）") })
 		return
 	}
 	model := u.model.Get()

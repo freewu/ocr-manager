@@ -96,6 +96,17 @@ class WorkerProtocolTest(unittest.TestCase):
         self.assertIn("markdown", page)
         self.assertTrue(any(ev.get("type") == "progress" for ev in events))
 
+    def test_pages_carry_source_file(self):
+        """多文件一次识别：每页要知道自己来自哪个文件，前端才能分 tab。"""
+        second = tiny_png(os.path.join(self.tmp, "second.png"), width=300, height=200)
+        self.send({"id": "1", "cmd": "load"})
+        self.read_until_result("1")
+        self.send({"id": "2", "cmd": "recognize", "files": [self.image, second], "options": {"lines": 1}})
+        result, _ = self.read_until_result("2")
+        self.assertTrue(result["ok"], result)
+        sources = [page.get("source") for page in result["pages"]]
+        self.assertEqual(sources, ["page.png", "second.png"], sources)
+
     def test_unknown_engine_reports_error_without_dying(self):
         self.send({"id": "1", "cmd": "load"})
         self.read_until_result("1")

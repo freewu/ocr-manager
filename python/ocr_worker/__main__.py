@@ -222,6 +222,12 @@ def recognize(instance, request: dict[str, Any], engine_name: str) -> dict[str, 
         raise EngineError("文件里没有可识别的页面")
 
     pages = instance.recognize(bitmaps, options)
+    # 引擎只管画页，不知道页从哪个文件来；这里按顺序补上来源文件，
+    # 前端才能按文件分 tab（一个 PDF 的多页共用一个 source）。
+    for page, bitmap in zip(pages, bitmaps):
+        path = getattr(bitmap, "path", "") or ""
+        if path:
+            page.source = os.path.basename(path)
     return {
         "engine": instance.name,
         "pages": [page.as_dict() for page in pages],

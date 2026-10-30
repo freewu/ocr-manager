@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -162,7 +163,9 @@ type Block struct {
 
 // ResultPage 是识别结果的一页。
 type ResultPage struct {
-	Index    int     `json:"index"`
+	Index int `json:"index"`
+	// Source 是这一页来自哪个输入文件（产物目录里的副本名，如 02-report.pdf）。
+	Source   string  `json:"source,omitempty"`
 	Width    int     `json:"width"`
 	Height   int     `json:"height"`
 	Text     string  `json:"text"`
@@ -417,6 +420,30 @@ func (c *client) recognize(ctx context.Context, model string, paths []string, op
 		"options": options,
 	}, &body)
 	return body.Job, err
+}
+
+// exportXLSX 拉一次识别导出的 Excel 字节。
+func (c *client) exportXLSX(ctx context.Context, id string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/api/history/"+url.PathEscape(id)+"/export.xlsx", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("导出 Excel 失败：%w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		var failure struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &failure) == nil && failure.Error != "" {
+			return nil, fmt.Errorf("导出 Excel 失败：%s", failure.Error)
+		}
+		return nil, fmt.Errorf("导出 Excel 失败：%s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func (c *client) job(ctx context.Context, id string) (Job, error) {

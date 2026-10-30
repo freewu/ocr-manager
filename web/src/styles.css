@@ -432,10 +432,91 @@ label.field {
   color: #cfe0ff;
 }
 
-.file-list {
+/* 输入区：左边文件列表 1/4，右边预览 3/4，中间那条可以拖 */
+.split {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 280px;
+  min-height: 200px;
+}
+
+.split-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0b1424;
+  min-width: 120px;
+}
+
+.split-list.over {
+  border-color: var(--accent);
+  background: #0e1c33;
+}
+
+.split-handle {
+  width: 9px;
+  flex: 0 0 9px;
+  cursor: col-resize;
+  border-radius: 4px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.split-handle:hover {
+  background: var(--accent);
+}
+
+.split-preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0b1424;
+  overflow: hidden;
+}
+
+.preview-img {
+  flex: 1;
+  min-height: 0;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #0a1220;
+}
+
+.split-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  border: 1px dashed #2b4468;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.file-remove {
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.file-remove:hover {
+  color: var(--danger);
+  background: rgba(255, 96, 96, 0.14);
 }
 
 .file-item {
@@ -447,6 +528,15 @@ label.field {
   border-radius: 8px;
   background: #0b1424;
   font-size: 12px;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+
+.file-item.on {
+  border-color: var(--accent);
+  background: rgba(63, 123, 255, 0.16);
 }
 
 .file-item img {

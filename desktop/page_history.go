@@ -183,6 +183,9 @@ func (u *ui) historyDetail() core.Node {
 		u.button(fixed("复制文本"), buttonQuiet, nil, func() { u.copyText(pageText, "识别文本") }),
 		u.button(fixed("打开 .md"), buttonQuiet, nil, func() { u.openResultFile(id, "result.md") }),
 		u.button(fixed("打开 .txt"), buttonQuiet, nil, func() { u.openResultFile(id, "result.txt") }),
+		u.button(fixed("导出 Excel"), buttonPrimary, nil, func() {
+			u.exportExcelFor(id, "ocr-"+id+".xlsx")
+		}, "history-export-xlsx"),
 		u.button(fixed("打开目录"), buttonQuiet, nil, func() { u.openHistoryDir(id) }),
 		u.button(fixed("删除"), buttonDanger, nil, func() { u.deleteHistory(id) }),
 	))

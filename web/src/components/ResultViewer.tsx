@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { api } from "../api";
 import type { OcrResult, Page } from "../types";
 
 type Tab = "text" | "markdown" | "blocks";
@@ -10,6 +11,36 @@ interface Props {
   onExport?: (name: string) => void;
 }
 
+/** 把产物目录里的副本名（02-invoice.pdf）还原成用户看得懂的名字 */
+function displaySource(name?: string): string {
+  if (!name) return "";
+  const base = name.split(/[\\/]/).pop() ?? name;
+  return /^\d\d-/.test(base) ? base.slice(3) : base;
+}
+
+/** 一个输入文件对应的一组页 */
+interface SourceGroup {
+  key: string;
+  label: string;
+  pages: Page[];
+}
+
+function groupBySource(pages: Page[]): SourceGroup[] {
+  const groups: SourceGroup[] = [];
+  const index = new Map<string, number>();
+  for (const page of pages) {
+    const key = page.source ?? "";
+    let at = index.get(key);
+    if (at === undefined) {
+      at = groups.length;
+      index.set(key, at);
+      groups.push({ key, label: displaySource(key) || "全部页", pages: [] });
+    }
+    groups[at].pages.push(page);
+  }
+  return groups;
+}
+
 function pageText(page: Page, tab: Tab): string {
   if (tab === "markdown") return page.markdown || page.text;
   return page.text || page.markdown;
@@ -19,7 +50,13 @@ function pageText(page: Page, tab: Tab): string {
 export default function ResultViewer({ result, jobId, onExport }: Props) {
   const [pageIndex, setPageIndex] = useState(0);
   const [tab, setTab] = useState<Tab>("text");
-  const pages = result.pages ?? [];
+  const [sourceKey, setSourceKey] = useState<string | null>(null);
+  const groups = useMemo(() => groupBySource(result.pages ?? []), [result.pages]);
+  const active = Math.max(
+    groups.findIndex((g) => g.key === sourceKey),
+    0,
+  );
+  const pages = groups[active]?.pages ?? [];
   const page = pages[Math.min(pageIndex, Math.max(pages.length - 1, 0))];
 
   return (
@@ -28,6 +65,7 @@ export default function ResultViewer({ result, jobId, onExport }: Props) {
         <div className="row">
           <span className="pill pill-ok">完成</span>
           <span className="muted small">
+            {groups.length > 1 && `${groups.length} 个文件 · `}
             {pages.length} 页 · 引擎 <code>{result.engine}</code>
             {result.duration_ms > 0 && ` · ${(result.duration_ms / 1000).toFixed(2)}s`}
           </span>
@@ -44,10 +82,30 @@ export default function ResultViewer({ result, jobId, onExport }: Props) {
               <button className="btn small ghost" onClick={() => onExport("result.json")}>
                 导出 .json
               </button>
+              <a className="btn small primary" href={api.xlsxUrl(jobId)}>
+                导出 Excel
+              </a>
             </>
           )}
         </div>
       </div>
+
+      {groups.length > 1 && (
+        <div className="tabs">
+          {groups.map((group) => (
+            <button
+              key={group.key || "all"}
+              className={`tab ${group.key === groups[active]?.key ? "on" : ""}`}
+              onClick={() => {
+                setSourceKey(group.key);
+                setPageIndex(0);
+              }}
+            >
+              {group.label} ({group.pages.length})
+            </button>
+          ))}
+        </div>
+      )}
 
       {pages.length > 1 && (
         <div className="pages">

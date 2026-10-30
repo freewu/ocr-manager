@@ -51,6 +51,8 @@ class Page:
     height: int
     blocks: list[Block] = field(default_factory=list)
     markdown: str | None = None
+    # 这一页来自哪个输入文件（产物目录里的副本名）；多文件一次识别时前端按它分 tab
+    source: str = ""
 
     def finish(self) -> "Page":
         self.blocks = sort_blocks(self.blocks)
@@ -65,6 +67,8 @@ class Page:
             "blocks": [block.as_dict() for block in self.blocks],
         }
         body["markdown"] = self.markdown if self.markdown is not None else markdown_of(self.blocks)
+        if self.source:
+            body["source"] = self.source
         return body
 
 

@@ -104,8 +104,8 @@ func (c *Core) StartRecognize(req RecognizeRequest) (*Job, error) {
 	var files []string
 	var firstInput string
 	var firstBytes int64
-	for _, input := range req.Inputs {
-		name, bytes, err := history.SaveInput(c.Paths, job.ID, input.Path, input.Name)
+	for index, input := range req.Inputs {
+		name, bytes, err := history.SaveInput(c.Paths, job.ID, index, input.Path, input.Name)
 		if err != nil {
 			cancel()
 			_ = os.RemoveAll(c.Paths.JobDir(job.ID))
@@ -376,6 +376,9 @@ func (c *Core) HistoryGet(id string) (history.Entry, history.Result, error) {
 
 // HistoryDelete 删一条历史。
 func (c *Core) HistoryDelete(id string) error { return history.Delete(c.Paths, id) }
+
+// ExportXLSX 把一次识别导出成 Excel 字节流（桌面壳存盘、浏览器直接下载）。
+func (c *Core) ExportXLSX(id string) ([]byte, error) { return history.ExportXLSX(c.Paths, id) }
 
 // HistoryFile 返回历史目录里的可下载文件。
 func (c *Core) HistoryFile(id, name string) (string, error) { return history.File(c.Paths, id, name) }

@@ -15,10 +15,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bluefrog/ocr-manager/internal/paths"
+	"github.com/bluefrog/ocr-manager/internal/xlsx"
 )
 
 // 任务状态。
@@ -61,7 +63,10 @@ type Result struct {
 
 // Page 是识别结果的一页。
 type Page struct {
-	Index    int     `json:"index"`
+	Index int `json:"index"`
+	// Source 是这一页来自哪个输入文件（产物目录里的副本名，如 01-page.png）。
+	// 多文件一次识别时前端靠它分 tab；老结果没有这个字段，就当全部来自一个文件。
+	Source   string  `json:"source,omitempty"`
 	Width    int     `json:"width"`
 	Height   int     `json:"height"`
 	Text     string  `json:"text"`
@@ -81,19 +86,16 @@ type Block struct {
 func Dir(p *paths.Paths, jobID string) string { return p.JobDir(cleanID(jobID)) }
 
 // SaveInput 把上传/本地文件复制进产物目录，返回相对文件名、字节数与扩展名。
-func SaveInput(p *paths.Paths, jobID, sourcePath, sourceName string) (string, int64, error) {
+//
+// 副本名形如 `02-invoice.pdf`：序号保证多文件一次识别时不会互相覆盖（以前所有
+// 文件都存成 input.png / input.pdf，第二个就把第一个盖掉了），文件名留着方便
+// 用户在产物目录里认人。
+func SaveInput(p *paths.Paths, jobID string, index int, sourcePath, sourceName string) (string, int64, error) {
 	dir := Dir(p, jobID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", 0, err
 	}
-	ext := strings.ToLower(filepath.Ext(sourceName))
-	if ext == "" {
-		ext = strings.ToLower(filepath.Ext(sourcePath))
-	}
-	if ext == "" {
-		ext = ".bin"
-	}
-	name := "input" + ext
+	name := fmt.Sprintf("%02d-%s", index+1, inputName(sourcePath, sourceName))
 
 	src, err := os.Open(sourcePath)
 	if err != nil {
@@ -318,4 +320,142 @@ func cleanID(jobID string) string {
 		return "unknown"
 	}
 	return cleaned
+}
+
+// ExportXLSX 把一次识别的结果导成 Excel：一张「分块」表（一行一块，带坐标与
+// 置信度）+ 一张「全文」表（一页一行，纯文本与 Markdown）。
+func ExportXLSX(p *paths.Paths, jobID string) ([]byte, error) {
+	entry, result, err := Get(p, cleanID(jobID))
+	if err != nil {
+		return nil, err
+	}
+	blocks := xlsx.Sheet{
+		Name:         "分块",
+		FreezeHeader: true,
+		Columns: []xlsx.Column{
+			{Title: "文件", Width: 26},
+			{Title: "页", Width: 6},
+			{Title: "序号", Width: 6},
+			{Title: "类型", Width: 10},
+			{Title: "置信度", Width: 9},
+			{Title: "坐标", Width: 30},
+			{Title: "文本", Width: 60},
+		},
+	}
+	pages := xlsx.Sheet{
+		Name:         "全文",
+		FreezeHeader: true,
+		Columns: []xlsx.Column{
+			{Title: "文件", Width: 26},
+			{Title: "页", Width: 6},
+			{Title: "字数", Width: 8},
+			{Title: "纯文本", Width: 60},
+			{Title: "Markdown", Width: 60},
+		},
+	}
+
+	for i, page := range result.Pages {
+		source := DisplaySource(page.Source)
+		if source == "" {
+			source = DisplaySource(entry.InputFile)
+		}
+		pageNo := page.Index
+		if pageNo <= 0 {
+			pageNo = i + 1
+		}
+		pages.Rows = append(pages.Rows, []xlsx.Cell{
+			xlsx.Text(source),
+			xlsx.Number(float64(pageNo)),
+			xlsx.Number(float64(len([]rune(page.Text)))),
+			xlsx.Text(page.Text),
+			xlsx.Text(page.Markdown),
+		})
+		for j, block := range page.Blocks {
+			kind := block.Kind
+			if kind == "" {
+				kind = "text"
+			}
+			cells := []xlsx.Cell{
+				xlsx.Text(source),
+				xlsx.Number(float64(pageNo)),
+				xlsx.Number(float64(j + 1)),
+				xlsx.Text(kind),
+			}
+			if block.Confidence != nil {
+				cells = append(cells, xlsx.Number(*block.Confidence))
+			} else {
+				cells = append(cells, xlsx.Text(""))
+			}
+			cells = append(cells, xlsx.Text(boxText(block.Box)), xlsx.Text(block.Text))
+			blocks.Rows = append(blocks.Rows, cells)
+		}
+	}
+	if len(blocks.Rows) == 0 && len(pages.Rows) == 0 {
+		return nil, fmt.Errorf("这次识别没有结果可导出")
+	}
+	return xlsx.Build([]xlsx.Sheet{blocks, pages})
+}
+
+// DisplaySource 把产物目录里的副本名（02-invoice.pdf）还原成用户看得懂的名字。
+func DisplaySource(name string) string {
+	if name == "" {
+		return ""
+	}
+	base := filepath.Base(name)
+	// 去掉 SaveInput 加的两位序号前缀
+	if len(base) > 3 && base[2] == '-' {
+		if _, err := strconv.Atoi(base[:2]); err == nil {
+			return base[3:]
+		}
+	}
+	return base
+}
+
+// boxText 把四边形坐标压成一行，导出的表格里看得懂就行。
+func boxText(box [][]float64) string {
+	if len(box) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(box))
+	for _, point := range box {
+		if len(point) < 2 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%.0f,%.0f", point[0], point[1]))
+	}
+	return strings.Join(parts, " ")
+}
+
+// inputName 由原文件名得出安全的副本名：去路径、去怪字符、保留扩展名。
+func inputName(sourcePath, sourceName string) string {
+	name := filepath.Base(strings.TrimSpace(sourceName))
+	if name == "" || name == "." {
+		name = filepath.Base(sourcePath)
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		ext = strings.ToLower(filepath.Ext(sourcePath))
+	}
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	stem = strings.Map(func(r rune) rune {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|':
+			return '-'
+		}
+		if r < 0x20 {
+			return -1
+		}
+		return r
+	}, stem)
+	stem = strings.Trim(stem, " .-")
+	if stem == "" {
+		stem = "input"
+	}
+	if len([]rune(stem)) > 40 {
+		stem = string([]rune(stem)[:40])
+	}
+	if ext == "" {
+		ext = ".bin"
+	}
+	return stem + ext
 }

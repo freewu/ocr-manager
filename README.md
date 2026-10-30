@@ -6,6 +6,9 @@ Python venv 管理、产物历史。
 
 同一套后端既给浏览器用，也给桌面壳用；桌面壳启动时会自己去找（必要时拉起）`ocr-server`。
 
+浏览器版走上传（`multipart`），桌面壳直接把本机路径交给后端拷副本，所以大文件不占内存。
+导出 Excel 走 `GET /api/history/{id}/export.xlsx`，工作簿由标准库现拼（不引第三方表格库）。
+
 ![logo](logo.png)
 
 ## 特性
@@ -13,7 +16,10 @@ Python venv 管理、产物历史。
 - **多引擎**：RapidOCR（CPU 基线）、Tesseract 5、PaddleOCR PP-OCRv5、dots.ocr / DeepSeek-OCR（VLM，需 GPU）、MinerU / Surya（外部登记）
 - **三种权重策略**：`hub`（worker 用 `snapshot_download` 拉）、`auto`（引擎自己管）、`none`（mock / 系统 tesseract）
 - **不许踩坑的报错**：每个失败都会告诉下一步该干什么，例如「先跑 `just env-model rapidocr`」
-- **产物可追溯**：每次识别落一个目录（`meta.json` + 输入副本 + `result.json/.md/.txt`）
+- **批量输入**：一次选多张图片 + 多个 PDF，左边文件列表 / 右边预览可拖动分栏，预览能收起
+- **按文件看结果**：结果区一个输入文件一个 tab，tab 内再切 text / markdown / 分块
+- **导出 Excel**：`分块`表（文件 / 页 / 序号 / 类型 / 置信度 / 坐标 / 文本）+ `全文`表（纯文本 + Markdown）
+- **产物可追溯**：每次识别落一个目录（`meta.json` + 输入副本 + `result.json/.md/.txt`），多文件按 `01-原始名` 排序落盘
 - **venv 隔离**：依赖装在数据目录下，按模型 extras 增量安装；基础解释器变了会自动重建
 - **同一时刻只加载一个引擎**：本地单卡场景，切换模型时自动卸载上一个
 

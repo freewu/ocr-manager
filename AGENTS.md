@@ -49,6 +49,9 @@ just cli info       # 跟运行中的服务对话（模型 / 环境 / 日志）
 - **桌面壳的图标**来自 `desktop/assets/Icon.png`，由 NSGo 打包时编成 exe 资源——所以要用 `just desktop` / `just desktop-build`，裸 `go run` 出来的窗口没有图标。
 - **worker 协议稳定**：dup fd1 做协议通道、stdout 重定向 stderr，单请求失败只回 error 不崩进程，同 worker 请求串行。
 - **health 自报家门**：`/api/health` 必须带 `"service":"ocr-server"`，客户端和 doctor 都校验（历史上因为端口串台误连过 tts-server）。
+- **输入文件按 `01-原始名` 落盘**：多文件一次识别时副本名必须带序号（`history.SaveInput`），否则同名文件互相覆盖；`Page.Source` 记副本名，前端靠它按文件分 tab（`displaySource()` 去掉序号前缀再显示）。
+- **文件对话框自己实现**：`desktop/filedialog_windows.go` 用 `comdlg32` 的 `GetOpenFileNameW`/`GetSaveFileNameW`（多选返回「目录\0文件名\0…」），Linux 走 zenity/kdialog、macOS 走 osascript；都没有就提示手动粘贴路径。别让它跑在 UI 线程上等。
+- **Excel 导出不引第三方库**：`internal/xlsx` 用 `archive/zip` 现拼 OOXML（inlineStr + 数值单元格 + 样式表），`history.ExportXLSX` 出「分块」「全文」两张表，接口是 `GET /api/history/{id}/export.xlsx`。
 - **生成物不入库**：`bin/`、`dist/`、`web/node_modules`、`web/dist`、`__pycache__`、`*.syso`、`*.tsbuildinfo`。
 
 ## 检查清单

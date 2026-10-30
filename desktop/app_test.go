@@ -117,14 +117,22 @@ func TestShellRenders(t *testing.T) {
 	app.Find("text:OCR Manager")
 	app.Find("text:多引擎文字识别")
 
-	// 识别页
-	app.Find("text:选输入 → 选模型 → 出 text / markdown / 分块结果")
+	// 识别页：多文件选择 + 预览分栏 + 模型下拉 + 手动路径兜底
+	app.Find("text:选文件 → 选模型 → 出 text / markdown / 分块，可导出 Excel")
+	app.Find("id:recognize-pick")
+	app.Find("id:recognize-split")
 	app.Find("id:recognize-paths")
+	app.Find("id:recognize-toggle-preview")
 
 	// 模型页
 	app.Press("id:nav-models")
 	app.Settle()
 	app.WaitFor("text:RapidOCR（PP-OCR ONNX）", 5*time.Second)
+
+	// 模型列表回来之后，识别页的模型选择是个下拉
+	app.Press("id:nav-recognize")
+	app.Settle()
+	app.WaitFor("id:recognize-model-select", 5*time.Second)
 	app.Find("id:page-scroll")
 
 	// 历史记录

@@ -131,6 +131,9 @@ export const api = {
   deleteHistory(id: string): Promise<unknown> {
     return fetch(`${BASE}/api/history/${id}`, { method: "DELETE" }).then(toJson);
   },
+  xlsxUrl(id: string): string {
+    return `${BASE}/api/history/${id}/export.xlsx`;
+  },
   fileUrl(id: string, name: string, download = false): string {
     return `${BASE}/api/history/${id}/files/${name}${download ? "?download=1" : ""}`;
   },

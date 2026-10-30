@@ -97,6 +97,7 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/history/{id}", s.handleHistoryGet)
 	m.HandleFunc("DELETE /api/history/{id}", s.handleHistoryDelete)
 	m.HandleFunc("GET /api/history/{id}/files/{name}", s.handleHistoryFile)
+	m.HandleFunc("GET /api/history/{id}/export.xlsx", s.handleHistoryXLSX)
 
 	m.HandleFunc("GET /api/events", s.handleEvents)
 	m.HandleFunc("GET /api/logs", s.handleLogs)
@@ -558,6 +559,23 @@ func (s *Server) handleHistoryFile(w http.ResponseWriter, r *http.Request) {
 	}
 	download := r.URL.Query().Get("download") == "1"
 	serveFile(w, r, file, download)
+}
+
+// handleHistoryXLSX 把一次识别导出成 Excel（分块表 + 全文表）。
+func (s *Server) handleHistoryXLSX(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	data, err := s.Core.ExportXLSX(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	// 一律按附件下：浏览器点和桌面壳拉的都是它
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "ocr-"+id+".xlsx"))
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	if _, err := w.Write(data); err != nil {
+		return
+	}
 }
 
 func serveFile(w http.ResponseWriter, r *http.Request, file string, download bool) {

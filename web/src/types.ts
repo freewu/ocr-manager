@@ -107,6 +107,8 @@ export interface Block {
 
 export interface Page {
   index: number;
+  /** 这一页来自哪个输入文件（多文件一次识别时用来分 tab） */
+  source?: string;
   width: number;
   height: number;
   text: string;

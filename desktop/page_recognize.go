@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/oneo-me/nsgo/base"
+	"path/filepath"
 	"strings"
 
+	"github.com/oneo-me/nsgo/base"
 	"github.com/oneo-me/nsgo/core"
 )
 
-// recognizePage 是「识别」页：填路径 → 选模型 → 跑 → 看结果。
+// recognizePage 是「识别」页：选文件 → 选模型 → 跑 → 按文件看结果。
 func (u *ui) recognizePage() core.Node {
 	actions := []core.Node{
 		u.button(fixed("清空结果"), buttonQuiet, nil, func() {
@@ -24,43 +25,16 @@ func (u *ui) recognizePage() core.Node {
 	job := u.data().job
 	running := job != nil && job.Status == "running"
 
-	input := u.card(14,
-		row(10,
-			u.strong(fixed("输入"), 14, func() core.Color { return u.pal().Text }),
-			fill(u.muted(fixed("图片 / PDF 的本机路径，每行一个"), 11)),
-		),
-		u.input(u.paths, "/home/me/page.png\n/home/me/report.pdf", true, 96, "recognize-paths"),
-		row(10,
-			fill(u.input(u.maxPages, "PDF 最多页数", false, 34, "recognize-max-pages")),
-			fill(u.input(u.pdfDPI, "PDF 渲染 DPI", false, 34, "recognize-dpi")),
-		),
-		u.modelPicker(),
-		row(10,
-			u.button(func() string {
-				if running {
-					return "识别中…"
-				}
-				return "开始识别"
-			}, buttonPrimary, func() bool { return running || u.data().busy != "" }, u.recognize, "recognize-start"),
-			core.Show{
-				When: func() bool { return running },
-				Then: func(*core.Scope) core.Node {
-					return u.button(fixed("取消"), buttonDanger, nil, u.cancelJob, "recognize-cancel")
-				},
-			},
-		),
-	)
+	input := u.inputCard(running)
 
 	status := core.Show{
 		When: func() bool { return u.data().job != nil },
-		Then: func(*core.Scope) core.Node {
-			return u.jobCard()
-		},
+		Then: func(*core.Scope) core.Node { return u.jobCard() },
 	}
 
 	result := u.resultCard()
 
-	return u.pageRoot("识别", "选输入 → 选模型 → 出 text / markdown / 分块结果", actions,
+	return u.pageRoot("识别", "选文件 → 选模型 → 出 text / markdown / 分块，可导出 Excel", actions,
 		core.Scroll{
 			TestID: "page-scroll",
 			Style:  core.Style{FlexGrow: 1, Width: core.Pct(100)},
@@ -76,59 +50,327 @@ func (u *ui) recognizePage() core.Node {
 	)
 }
 
-// modelPicker 是识别页的模型选择：一排可点的胶囊，只列本机能用的。
-func (u *ui) modelPicker() core.Node {
-	usable := u.usableModels()
-	chips := make([]core.Node, 0, len(usable))
-	for _, m := range usable {
-		id := m.ID
-		label := m.Name
-		if m.Status.State == "ready" || m.Status.State == "running" {
-			label += " ·已就绪"
+// inputCard 是输入区：上面一排按钮，中间「文件列表 | 预览」可拖动分栏，下面是参数与模型。
+func (u *ui) inputCard(running bool) core.Node {
+	count := func() string {
+		files := u.st.files
+		if len(files) == 0 {
+			return "还没选文件"
 		}
-		chips = append(chips, u.modelChip(id, label))
+		var bytes int64
+		for _, file := range files {
+			bytes += file.Size
+		}
+		return fmt.Sprintf("%d 个文件 · %s", len(files), fmtBytes(uint64(bytes)))
 	}
-	if len(chips) == 0 {
-		return u.card(14,
-			u.muted(fixed("还没有可用模型：先去「模型」页下载/启用一个（RapidOCR 最省事）。"), 12),
-		)
+
+	return u.card(14,
+		row(10,
+			u.strong(fixed("输入文件"), 14, func() core.Color { return u.pal().Text }),
+			fill(u.muted(count, 11)),
+			u.button(fixed("选择文件"), buttonPrimary, func() bool { return running }, u.pickInputs, "recognize-pick"),
+			u.button(fixed("清空"), buttonQuiet, func() bool { return running || len(u.st.files) == 0 }, u.clearInputs, "recognize-clear"),
+		),
+		u.splitPane(),
+		row(10,
+			fill(u.input(u.pickPath, "也可以直接粘贴图片 / PDF 的完整路径，回车添加", false, 34, "recognize-paths")),
+			u.button(fixed("添加"), buttonQuiet, nil, u.addInputFromText, "recognize-add"),
+		),
+		row(10,
+			fill(u.input(u.maxPages, "PDF 最多页数", false, 34, "recognize-max-pages")),
+			fill(u.input(u.pdfDPI, "PDF 渲染 DPI", false, 34, "recognize-dpi")),
+		),
+		u.modelSelect(),
+		row(10,
+			u.button(func() string {
+				if running {
+					return "识别中…"
+				}
+				return "开始识别"
+			}, buttonPrimary, func() bool { return running || u.data().busy != "" }, u.recognize, "recognize-start"),
+			core.Show{
+				When: func() bool { return running },
+				Then: func(*core.Scope) core.Node {
+					return u.button(fixed("取消"), buttonDanger, nil, u.cancelJob, "recognize-cancel")
+				},
+			},
+			fill(u.muted(func() string {
+				if running {
+					return "任务在后台跑，可以先去别的页看日志"
+				}
+				return ""
+			}, 11)),
+		),
+	)
+}
+
+// splitPane 是「文件列表 1/4 | 预览 3/4」的可拖动分栏。预览可以整块收起。
+func (u *ui) splitPane() core.Node {
+	list := base.ResizablePanel{
+		TestID:  "recognize-file-panel",
+		Size:    func() core.Points { return core.Points(260) },
+		MinSize: core.Points(170),
+		Style:   core.Style{Height: core.Pt(300)},
+		Children: []core.Node{core.View{
+			Style:    core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+			Children: []core.Node{u.fileList()},
+		}},
 	}
-	return core.View{Style: core.Style{Gap: 6}, Children: []core.Node{
-		u.muted(fixed("识别模型"), 11),
-		core.View{Style: core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6}, Children: chips},
+	preview := base.ResizablePanel{
+		TestID:   "recognize-preview-panel",
+		MinSize:  core.Points(180),
+		Visible:  func() bool { return u.previewOpen.Get() },
+		Style:    core.Style{Height: core.Pt(300)},
+		Children: []core.Node{u.previewPane()},
+	}
+	// 没有文件时预览位置给一句引导，别让右边空一片
+	return core.View{Style: core.Style{Gap: 6, Width: core.Pct(100)}, Children: []core.Node{
+		base.ResizablePanelGroup{
+			TestID:      "recognize-split",
+			Axis:        base.Horizontal,
+			Panels:      []base.ResizablePanel{list, preview},
+			HandleLabel: "拖动能调整文件列表与预览的宽度",
+			HandleStyleFunc: func() core.Style {
+				p := u.pal()
+				return core.Style{Background: p.Border}
+			},
+			HandleThumbStyle: core.Style{Background: u.pal().Border},
+			Style:            core.Style{Width: core.Pct(100), Height: core.Pt(300)},
+		},
+		row(10,
+			u.muted(func() string {
+				if u.previewOpen.Get() {
+					return "预览可以收起：右上角 ✕"
+				}
+				return "预览已收起"
+			}, 11),
+			fill(core.View{}),
+			u.button(func() string {
+				if u.previewOpen.Get() {
+					return "收起预览"
+				}
+				return "展开预览"
+			}, buttonQuiet, nil, u.togglePreview, "recognize-toggle-preview"),
+		),
 	}}
 }
 
-// modelChip 是一颗可点选的模型胶囊。
-func (u *ui) modelChip(id, label string) core.Node {
-	selected := func() bool { return u.model.Get() == id }
+// fileList 是左侧的文件列表（选中看预览，✕ 移除）。
+func (u *ui) fileList() core.Node {
+	files := u.st.files
+	if len(files) == 0 {
+		return core.View{
+			StyleFunc: func() core.Style {
+				p := u.pal()
+				return core.Style{
+					Width: core.Pct(100), Height: core.Pct(100), Padding: core.All(12), Gap: 6,
+					CornerRadius: 9, BorderWidth: 1, BorderColor: p.Border, Background: p.Background,
+					JustifyContent: core.JustifyCenter,
+				}
+			},
+			Children: []core.Node{
+				u.muted(fixed("点「选择文件」可以一次选多张图片和 PDF"), 11),
+				u.muted(fixed("选中的文件会排队，一次识别全部"), 11),
+			},
+		}
+	}
+	rows := make([]core.Node, 0, len(files))
+	for _, file := range files {
+		rows = append(rows, u.fileRow(file))
+	}
+	return core.View{
+		StyleFunc: func() core.Style {
+			p := u.pal()
+			return core.Style{
+				Width: core.Pct(100), Height: core.Pct(100), Padding: core.All(6),
+				CornerRadius: 9, BorderWidth: 1, BorderColor: p.Border, Background: p.Background,
+			}
+		},
+		Children: []core.Node{core.Scroll{
+			TestID: "recognize-file-scroll",
+			Style:  core.Style{Width: core.Pct(100), FlexGrow: 1},
+			Children: []core.Node{core.View{
+				Style:    core.Style{Gap: 4, Width: core.Pct(100)},
+				Children: rows,
+			}},
+		}},
+	}
+}
+
+// fileRow 是文件列表的一行：文件名 + 大小，点一下看预览，✕ 移除。
+func (u *ui) fileRow(file pickedFile) core.Node {
+	selected := func() bool { return u.selFile.Get() == file.Path }
 	return core.View{
 		StyleFunc: func() core.Style {
 			p := u.pal()
 			s := core.Style{
-				Padding:      core.Symmetric(4, 10),
-				CornerRadius: 7,
-				BorderWidth:  1,
-				BorderColor:  p.Border,
-				Background:   p.Surface,
+				Width: core.Pct(100), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+				Padding: core.Symmetric(6, 8), CornerRadius: 7,
 			}
 			if selected() {
-				s.BorderColor = p.Accent
-				s.Background = p.Accent.Faded(0.16)
+				s.Background = p.Accent.Faded(0.14)
 			}
 			return s
 		},
-		Children: []core.Node{base.Button{
-			OnPress: func(core.PressEvent) { u.model.Set(id) },
-			Style:   core.Style{Padding: core.All(0)},
-			Children: []core.Node{u.text(fixed(label), 12, func() core.Color {
-				if selected() {
-					return u.pal().Accent
-				}
-				return u.pal().TextMuted
-			})},
-		}},
+		Children: []core.Node{
+			base.Button{
+				TestID:  "recognize-file-" + file.Name,
+				OnPress: func(core.PressEvent) { u.selectInput(file.Path) },
+				StyleFunc: func() core.Style {
+					return core.Style{Width: core.Pct(100), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}
+				},
+				Children: []core.Node{
+					core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
+						u.text(fixed(file.Name), 12, func() core.Color {
+							if selected() {
+								return u.pal().Accent
+							}
+							return u.pal().Text
+						}),
+						u.muted(fixed(fmt.Sprintf("%s · %s", file.Kind, fmtBytes(uint64(file.Size)))), 10),
+					}},
+				},
+			},
+			base.Button{
+				TestID:  "recognize-remove-" + file.Name,
+				OnPress: func(core.PressEvent) { u.removeInput(file.Path) },
+				StyleFunc: func() core.Style {
+					return core.Style{
+						Padding: core.Symmetric(2, 6), CornerRadius: 6,
+						Hover: &core.Style{Background: u.pal().Danger.Faded(0.16)},
+					}
+				},
+				Children: []core.Node{u.muted(fixed("✕"), 12)},
+			},
+		},
 	}
+}
+
+// previewPane 是右侧预览：图片直接看，PDF 给一句说明。
+func (u *ui) previewPane() core.Node {
+	file, hasFile := u.inputAt(u.selFile.Get())
+	head := row(8,
+		fill(u.text(func() string {
+			if !hasFile {
+				return "预览"
+			}
+			return file.Name
+		}, 12, func() core.Color { return u.pal().Text })),
+		base.Button{
+			TestID:  "recognize-close-preview",
+			OnPress: func(core.PressEvent) { u.previewOpen.Set(false) },
+			Style: core.Style{
+				Padding: core.Symmetric(2, 7), CornerRadius: 6,
+				Hover: &core.Style{Background: u.pal().SurfaceHover},
+			},
+			Children: []core.Node{u.muted(fixed("✕"), 12)},
+		},
+	)
+
+	var body core.Node
+	switch {
+	case !hasFile:
+		body = core.View{
+			Style:    core.Style{FlexGrow: 1, JustifyContent: core.JustifyCenter, AlignItems: core.AlignCenter},
+			Children: []core.Node{u.muted(fixed("在左边点一个文件，这里就显示预览"), 11)},
+		}
+	case len(u.st.previewData) > 0:
+		body = core.Image{
+			TestID:     "recognize-preview-image",
+			SourceFunc: func() core.ImageSource { return core.ImageSource{Data: u.st.previewData} },
+			ResizeMode: core.Contain,
+			Style:      core.Style{FlexGrow: 1, Width: core.Pct(100), MinHeight: core.Pt(120), CornerRadius: 8},
+		}
+	default:
+		body = core.View{
+			Style:    core.Style{FlexGrow: 1, Padding: core.All(10), Gap: 6, JustifyContent: core.JustifyCenter},
+			Children: []core.Node{u.muted(fixed(u.st.previewNote), 11)},
+		}
+	}
+
+	return core.View{
+		StyleFunc: func() core.Style {
+			p := u.pal()
+			return core.Style{
+				Width: core.Pct(100), Height: core.Pct(100), Padding: core.All(8), Gap: 6,
+				CornerRadius: 9, BorderWidth: 1, BorderColor: p.Border, Background: p.Background,
+			}
+		},
+		Children: []core.Node{head, body},
+	}
+}
+
+// modelSelect 是识别模型的下拉选择（只列本机能用的模型）。
+func (u *ui) modelSelect() core.Node {
+	usable := u.usableModels()
+	if len(usable) == 0 {
+		return u.card(12,
+			u.muted(fixed("还没有可用模型：先去「模型」页下载/启用一个（RapidOCR 最省事）。"), 12),
+		)
+	}
+	items := make([]core.Node, 0, len(usable))
+	for _, model := range usable {
+		m := model
+		items = append(items, base.MenuItem{
+			Label:    m.Name,
+			TestID:   "recognize-model-" + m.ID,
+			OnSelect: func() { u.model.Set(m.ID) },
+			Children: []core.Node{row(8,
+				u.text(fixed(m.Name), 12, func() core.Color {
+					if u.model.Get() == m.ID {
+						return u.pal().Accent
+					}
+					return u.pal().Text
+				}),
+				fill(core.View{}),
+				u.chip(fixed(m.Status.State), u.stateTone(func() string { return m.Status.State })),
+			)},
+		})
+	}
+
+	label := func() string {
+		current := u.model.Get()
+		for _, m := range usable {
+			if m.ID == current {
+				return m.Name
+			}
+		}
+		return "请选择模型"
+	}
+
+	return core.View{Style: core.Style{Gap: 6, Width: core.Pct(100)}, Children: []core.Node{
+		u.muted(fixed("识别模型"), 11),
+		base.Menu{
+			TestID: "recognize-model-select",
+			Label:  "识别模型",
+			Offset: 4,
+			Margin: 8,
+			PopupStyleFunc: func() core.Style {
+				p := u.pal()
+				return core.Style{
+					Padding: core.All(4), CornerRadius: 10, BorderWidth: 1,
+					BorderColor: p.Border, Background: p.Surface,
+				}
+			},
+			BackdropStyle: core.Style{Background: core.RGBA(0x000000, 0.35)},
+			Trigger: core.View{
+				StyleFunc: func() core.Style {
+					p := u.pal()
+					return core.Style{
+						Width: core.Pct(100), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+						Padding: core.Symmetric(8, 11), CornerRadius: 9, BorderWidth: 1,
+						BorderColor: p.Border, Background: p.Background,
+						Hover: &core.Style{Background: p.SurfaceHover},
+					}
+				},
+				Children: []core.Node{
+					fill(u.text(label, 13, func() core.Color { return u.pal().Text })),
+					u.muted(fixed("▾"), 12),
+				},
+			},
+			Children: items,
+		},
+	}}
 }
 
 // jobCard 显示当前任务进度。
@@ -195,9 +437,52 @@ func (u *ui) jobCard() core.Node {
 	)
 }
 
-// resultCard 显示识别结果：纯文本 / Markdown / 分块三种视图 + 导出。
+// sourceGroup 是结果里一个输入文件对应的那一组页。
+type sourceGroup struct {
+	key   string
+	label string
+	pages []ResultPage
+}
+
+// groupBySource 按来源文件把页分组；老结果没有 source 字段就全归到一组。
+func groupBySource(pages []ResultPage) []sourceGroup {
+	groups := make([]sourceGroup, 0, 4)
+	index := map[string]int{}
+	for _, page := range pages {
+		key := page.Source
+		where, ok := index[key]
+		if !ok {
+			where = len(groups)
+			index[key] = where
+			label := displaySource(key)
+			if label == "" {
+				label = "全部页"
+			}
+			groups = append(groups, sourceGroup{key: key, label: label})
+		}
+		groups[where].pages = append(groups[where].pages, page)
+	}
+	return groups
+}
+
+// displaySource 把产物目录里的副本名（02-invoice.pdf）还原成用户看得懂的名字。
+func displaySource(name string) string {
+	if name == "" {
+		return ""
+	}
+	base := filepath.Base(name)
+	if len(base) > 3 && base[2] == '-' {
+		prefix := base[:2]
+		if prefix[0] >= '0' && prefix[0] <= '9' && prefix[1] >= '0' && prefix[1] <= '9' {
+			return base[3:]
+		}
+	}
+	return base
+}
+
+// resultCard 显示识别结果：一个文件一个 tab，tab 内再看 text / markdown / 分块。
 func (u *ui) resultCard() core.Node {
-	show := func() bool { return u.data().result != nil || u.data().detail != nil }
+	show := func() bool { return u.data().result != nil }
 	return core.Show{
 		When: show,
 		Then: func(*core.Scope) core.Node {
@@ -205,7 +490,12 @@ func (u *ui) resultCard() core.Node {
 			if result == nil {
 				return u.card(14, u.muted(fixed("还没有结果"), 12))
 			}
-			pages := result.Pages
+			groups := groupBySource(result.Pages)
+			if len(groups) == 0 {
+				return u.card(14, u.muted(fixed("这次识别没有返回任何页。"), 12))
+			}
+			active := u.activeGroup(groups)
+			pages := groups[active].pages
 			idx := u.pageIdx.Get()
 			if idx >= len(pages) {
 				idx = 0
@@ -222,17 +512,19 @@ func (u *ui) resultCard() core.Node {
 					if page == nil {
 						return ""
 					}
-					return fmt.Sprintf("第 %d/%d 页 · %d×%d · %d 块", idx+1, len(pages), page.Width, page.Height, len(page.Blocks))
+					return fmt.Sprintf("%d 个文件 · 当前第 %d/%d 页 · %d×%d · %d 块",
+						len(groups), idx+1, len(pages), page.Width, page.Height, len(page.Blocks))
 				}, 11)),
+				u.button(fixed("导出 Excel"), buttonPrimary, nil, u.exportExcel, "recognize-export-xlsx"),
+				u.button(fixed("导出 .md"), buttonQuiet, nil, func() { u.openResultFile(id, "result.md") }),
+				u.button(fixed("导出 .txt"), buttonQuiet, nil, func() { u.openResultFile(id, "result.txt") }),
 			)
 
-			tabs := row(6,
+			views := row(6,
 				u.resultTabButton("text", "纯文本"),
 				u.resultTabButton("markdown", "Markdown"),
 				u.resultTabButton("blocks", "分块"),
 				fill(u.muted(fixed(""), 11)),
-				u.button(fixed("导出 .md"), buttonQuiet, nil, func() { u.openResultFile(id, "result.md") }),
-				u.button(fixed("导出 .txt"), buttonQuiet, nil, func() { u.openResultFile(id, "result.txt") }),
 			)
 
 			var body core.Node
@@ -261,14 +553,68 @@ func (u *ui) resultCard() core.Node {
 				})
 			}
 
-			children := []core.Node{head, tabs}
-			// 多页时给一排页码
+			children := []core.Node{head, u.fileTabs(groups, active), views}
 			if len(pages) > 1 {
 				children = append(children, u.pageChips(len(pages)))
 			}
 			children = append(children, body)
 			return u.card(14, children...)
 		},
+	}
+}
+
+// activeGroup 返回当前选中的文件 tab 下标；选的那个已经不在结果里就回到第一个。
+func (u *ui) activeGroup(groups []sourceGroup) int {
+	want := u.resultFile.Get()
+	for i, group := range groups {
+		if group.key == want {
+			return i
+		}
+	}
+	return 0
+}
+
+// fileTabs 是结果区的文件 tab 条，一个文件一个 tab。
+func (u *ui) fileTabs(groups []sourceGroup, active int) core.Node {
+	tabs := make([]core.Node, 0, len(groups))
+	for i, group := range groups {
+		idx, g := i, group
+		selected := func() bool { return active == idx }
+		tabs = append(tabs, base.Tab{
+			TestID:   "recognize-tab-" + g.label,
+			Label:    g.label,
+			Selected: selected,
+			OnPress: func(core.PressEvent) {
+				u.resultFile.Set(g.key)
+				u.pageIdx.Set(0)
+			},
+			StyleFunc: func() core.Style {
+				p := u.pal()
+				s := core.Style{
+					Padding:      core.Symmetric(5, 11),
+					CornerRadius: 7,
+					BorderWidth:  1,
+					BorderColor:  p.Border,
+					Background:   p.Background,
+				}
+				if selected() {
+					s.BorderColor, s.Background = p.Accent, p.Accent.Faded(0.14)
+				}
+				return s
+			},
+			Children: []core.Node{u.text(fixed(fmt.Sprintf("%s (%d)", g.label, len(g.pages))), 12, func() core.Color {
+				if selected() {
+					return u.pal().Accent
+				}
+				return u.pal().TextMuted
+			})},
+		})
+	}
+	return base.Tabs{
+		TestID:   "recognize-result-tabs",
+		Label:    "识别结果（按文件）",
+		Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, Gap: 6, Width: core.Pct(100)},
+		Children: tabs,
 	}
 }
 
@@ -402,6 +748,7 @@ func (u *ui) blocksView(page *ResultPage) core.Node {
 				BorderColor:  p.Border,
 				Background:   p.Background,
 				Gap:          4,
+				UserSelect:   core.UserSelectText,
 			}
 		},
 		Children: []core.Node{core.Scroll{
