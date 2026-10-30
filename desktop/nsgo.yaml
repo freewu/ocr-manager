@@ -1,0 +1,19 @@
+# NSGo 桌面壳：`go tool nsgo dev` / `go tool nsgo build` 读取该文件。
+name: OCR Manager
+id: dev.bluefrog.ocr-manager
+version: 0.1.0
+window: { width: 1200, height: 840 }
+
+# 应用图标：`python ../scripts/make_icon.py` 从仓库根的 logo.png 生成。
+# Windows 链接进 exe、macOS 生成 .icns、Linux 写到二进制旁边的 Icon.png；
+# 运行时也拿它画侧栏左上角的品牌图。
+icon: { png: assets/Icon.png }
+
+dev:
+  target: native # native | web | ios | ios_simulator | android
+  hot_reload: false
+  fps: false
+
+build:
+  output: dist
+  targets: [windows_x64, macos_arm64, linux_x64]

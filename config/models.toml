@@ -1,0 +1,175 @@
+# =====================================================================
+# OCR Manager —— 模型注册表
+#
+# 该文件会在启动时被读取；也可以用环境变量 OCR_MODELS_FILE 指向别的文件。
+# 内置的默认清单（config/models.toml 被 go:embed 进二进制）与这里按 id 合并，
+# 用户目录里的条目优先。
+#
+# 字段说明
+#   id            唯一标识（URL / 文件名里使用，建议小写 + 连字符）
+#   name          展示名
+#   engine        python worker 里的引擎实现：mock | rapidocr | tesseract
+#                 | paddle | vlm | external
+#   weights       权重来源：hub（HF 仓库，需要「下载」）| auto（引擎自己管）
+#                 | none（不需要）。不写就按 repo 猜。
+#   tasks         能力标签：text | layout | table | markdown | formula | pdf
+#   platforms     限定只在某些系统出现（["windows"]），空表示不限
+#   requires_gpu  必须 NVIDIA 显卡；本机没 CUDA 时会直接禁止下载/启用
+#   repo          HuggingFace 仓库，形如 "owner/name"
+#   homepage      官网 / 项目主页，界面上「官网」按钮直接跳过去；
+#                 不填就按 repo 拼 https://huggingface.co/<repo>
+#   extras        python 包的可选依赖组（见 python/pyproject.toml）
+#   probe         启动/准备时是否联网探测 Hub 元数据（文件列表、大小、license）
+#   featured      前端是否置顶展示
+#   hidden        不进模型列表（自测占位引擎）
+# =====================================================================
+
+[[models]]
+id = "mock"
+name = "离线演示（Mock）"
+engine = "mock"
+repo = ""
+description = "不加载任何模型的占位引擎：读图片尺寸，返回固定的三行文字与框。用来验证「上传 → 识别 → 历史 → 导出」整条链路，也是 CI 里唯一不需要显卡和权重的引擎。"
+languages = ["zh", "en"]
+tasks = ["text", "layout"]
+weights = "none"
+size_hint = "0 MB"
+hidden = true
+tags = ["offline", "test"]
+
+[models.options]
+lines = 3
+
+[[models]]
+id = "rapidocr"
+name = "RapidOCR（PP-OCR ONNX）"
+engine = "rapidocr"
+repo = ""
+homepage = "https://github.com/RapidAI/RapidOCR"
+description = "PaddleOCR 检测/识别模型的 ONNX 版本，CPU 就能跑，中英文效果稳定、启动快，是本地管理器的默认推荐。模型文件随 pip 包下载并缓存在权重目录，无需单独「下载」按钮。"
+languages = ["zh", "en", "ja", "ko"]
+tasks = ["text", "layout"]
+weights = "auto"
+extras = ["rapidocr"]
+size_hint = "约 15 MiB（onnx 模型 + onnxruntime）"
+featured = true
+probe = false
+tags = ["cpu", "onnx", "fast", "baseline"]
+
+[models.options]
+lang = "ch"
+# 检测时把长边缩到多少像素：越大越准、越慢。
+det_limit_side_len = 1600
+text_score = 0.5
+use_angle_cls = true
+
+[[models]]
+id = "tesseract"
+name = "Tesseract 5"
+engine = "tesseract"
+repo = ""
+homepage = "https://github.com/tesseract-ocr/tesseract"
+description = "老牌开源 OCR。这里调用系统安装的 tesseract 可执行文件（Windows 上装 UB Mannheim 发行版并勾选中文语言包），适合印刷体、票据等规则文本；对复杂版面和手写体不如深度学习方案。"
+languages = ["zh", "en", "de", "ja"]
+tasks = ["text"]
+weights = "none"
+extras = ["tesseract"]
+size_hint = "~0 MB（需要系统 tesseract + 语言包）"
+probe = false
+tags = ["cpu", "system", "baseline"]
+
+[models.options]
+lang = "chi_sim+eng"
+psm = 6
+
+[[models]]
+id = "paddleocr-ppocrv5"
+name = "PaddleOCR PP-OCRv5"
+engine = "paddle"
+repo = ""
+homepage = "https://github.com/PaddlePaddle/PaddleOCR"
+description = "PaddleOCR 官方 PP-OCRv5（server 模型）：检测、方向分类、识别三段式，中文场景精度高，支持表格与版面分析。首次启用会拉起 PaddlePaddle（CPU 版约 100 MB，GPU 版要匹配 CUDA）。"
+languages = ["zh", "en", "ja", "ko", "chinese_cht"]
+tasks = ["text", "layout", "table"]
+weights = "auto"
+extras = ["paddle"]
+size_hint = "约 100 MiB（paddlepaddle + 模型）"
+probe = false
+tags = ["cpu", "gpu", "chinese", "table"]
+
+[models.options]
+lang = "ch"
+use_doc_orientation_classify = false
+use_textline_orientation = true
+
+[[models]]
+id = "dots-ocr"
+name = "dots.ocr"
+engine = "vlm"
+repo = "rednote-hilab/dots.ocr"
+description = "1.7B 参数的多语言文档解析 VLM：一次前向同时给出文字、版面与阅读顺序，输出 Markdown。需要 NVIDIA 显卡（建议 8 GB 以上）和 transformers 推理环境；权重约 3.5 GiB。"
+languages = ["zh", "en", "ja", "ko", "fr", "de"]
+tasks = ["text", "layout", "markdown", "table", "formula"]
+weights = "hub"
+extras = ["vlm"]
+requires_gpu = true
+size_hint = "约 3.5 GiB（bfloat16 权重）"
+probe = true
+featured = true
+tags = ["gpu", "vlm", "markdown", "layout"]
+
+[models.options]
+prompt = "请把这张图完整转成 Markdown，保留标题层级、表格和公式。"
+max_new_tokens = 4096
+dtype = "bfloat16"
+
+[[models]]
+id = "deepseek-ocr"
+name = "DeepSeek-OCR"
+engine = "vlm"
+repo = "deepseek-ai/DeepSeek-OCR"
+description = "DeepSeek 的视觉压缩 OCR：把页面压成少量视觉 token 再解码，长文档吞吐高。需要 NVIDIA 显卡（建议 16 GB 以上），仓库里带自定义 modeling 代码，首次加载会编译 CUDA 算子。"
+languages = ["zh", "en"]
+tasks = ["text", "markdown", "layout"]
+weights = "hub"
+extras = ["vlm"]
+requires_gpu = true
+size_hint = "约 6.5 GiB（权重）"
+probe = true
+tags = ["gpu", "vlm", "long-doc"]
+
+[models.options]
+prompt = "<image>\n<|grounding|>Convert the document to markdown."
+max_new_tokens = 8192
+dtype = "bfloat16"
+
+[[models]]
+id = "mineru"
+name = "MinerU 2.5（PDF 解析）"
+engine = "external"
+repo = "opendatalab/MinerU"
+description = "面向 PDF 的文档解析流水线：版面、公式、表格、图片一并抽成 Markdown，适合论文与扫描件批量入库。它是一个独立 CLI，本应用不代管它的环境；这里只登记入口与用法，方便对比。"
+languages = ["zh", "en"]
+tasks = ["text", "layout", "table", "formula", "markdown", "pdf"]
+weights = "none"
+size_hint = "外部工具（`pip install mineru`）"
+tags = ["pdf", "external", "markdown"]
+
+[models.options]
+command = "mineru -p <pdf> -o <out>"
+
+[[models]]
+id = "surya"
+name = "Surya（多语言 OCR）"
+engine = "external"
+repo = "datalab-to/surya"
+homepage = "https://github.com/datalab-to/surya"
+description = "90+ 语言的检测 / 识别 / 版面 / 阅读顺序工具包，自带命令行与 Python API。同样作为外部模型登记：需要单独 `pip install surya-ocr`，本应用不代管它的权重。"
+languages = ["zh", "en", "ja", "ar", "hi"]
+tasks = ["text", "layout", "table"]
+weights = "none"
+size_hint = "外部工具（`pip install surya-ocr`，权重约 1 GiB）"
+tags = ["multilingual", "external", "layout"]
+
+[models.options]
+command = "surya_ocr <image>"

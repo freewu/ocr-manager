@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocr-worker"
+version = "0.1.0"
+description = "OCR Manager 的内置 python worker（JSONL 协议）"
+requires-python = ">=3.9"
+dependencies = []
+
+# 每个 extras 对应 config/models.toml 里模型的 `extras` 字段。
+# 只装用得到的引擎，别让用户为了一个 mock 下 2 GB 的 torch。
+[project.optional-dependencies]
+# RapidOCR：onnxruntime 版 PP-OCR，CPU 主力
+rapidocr = [
+    "pillow>=10.0",
+    "numpy>=1.24",
+    "onnxruntime>=1.17",
+    "rapidocr>=2.0",
+    "pypdfium2>=4.28",
+]
+# Tesseract：只要薄封装 + 系统二进制
+tesseract = [
+    "pillow>=10.0",
+    "pytesseract>=0.3.10",
+    "pypdfium2>=4.28",
+]
+# PaddleOCR：paddlepaddle 装的是 CPU 版，GPU 用户自己换
+paddle = [
+    "pillow>=10.0",
+    "numpy>=1.24",
+    "paddlepaddle>=3.0",
+    "paddleocr>=3.0",
+    "pypdfium2>=4.28",
+]
+# VLM：transformers 推理，需要 NVIDIA 显卡
+vlm = [
+    "pillow>=10.0",
+    "numpy>=1.24",
+    "torch>=2.3",
+    "transformers>=4.45",
+    "accelerate>=0.30",
+    "huggingface_hub>=0.24",
+    "pypdfium2>=4.28",
+]
+# 全量（开发 / 打包机用）
+all = [
+    "pillow>=10.0",
+    "numpy>=1.24",
+    "pytesseract>=0.3.10",
+    "onnxruntime>=1.17",
+    "rapidocr>=2.0",
+    "pypdfium2>=4.28",
+    "huggingface_hub>=0.24",
+]
+
+[tool.setuptools.packages.find]
+include = ["ocr_worker*"]

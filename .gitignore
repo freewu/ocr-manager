@@ -31,3 +31,27 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# 前端
+web/node_modules/
+web/dist/
+
+# 构建产物与运行时数据
+bin/
+.runtime/
+__pycache__/
+*.pyc
+
+# TS 增量编译缓存
+web/*.tsbuildinfo
+
+# NSGo 打包产物 / 临时图标资源
+bin/dist/
+dist/
+desktop/*.syso
+
+# NSGo dev 缓存 / 误编出来的本地二进制 / python 打包元数据
+desktop/.nsgo/
+*.egg-info/
+desktop/desktop
+desktop/desktop.exe
