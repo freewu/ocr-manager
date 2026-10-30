@@ -73,8 +73,17 @@ func (e *Env) VenvPython() string {
 	return filepath.Join(e.venvDir, "bin", "python")
 }
 
+// VenvConfig 是 venv 的配置档（python -m venv 写的，记着 base 解释器与路径）。
+func (e *Env) VenvConfig() string { return filepath.Join(e.venvDir, "pyvenv.cfg") }
+
 // VenvReady 表示 venv 已经建好。
-func (e *Env) VenvReady() bool { return FileExists(e.VenvPython()) }
+//
+// 光有 python.exe 不算数：创建过程被打断时会留下一个「半截 venv」——
+// 解释器拷过去了、pyvenv.cfg 还没写，pip 进去只会回一句
+// "No pyvenv.cfg file"，看着像依赖装不上，其实是环境本身坏了。
+func (e *Env) VenvReady() bool {
+	return FileExists(e.VenvPython()) && FileExists(e.VenvConfig())
+}
 
 // Base 是当前选用的基础解释器（nil = 自动探测）。
 func (e *Env) Base() *string { return e.base }
@@ -136,6 +145,14 @@ func (e *Env) EnsureVenv(bus *events.EventBus) error {
 		}
 		return nil
 	}
+	if FileExists(e.VenvPython()) {
+		// 半截 venv（创建过程被打断，缺 pyvenv.cfg）：先清掉再建一遍，
+		// 不然 pip 会一直报 "No pyvenv.cfg file"。
+		bus.Warn("python", "venv 不完整（缺 pyvenv.cfg），正在重建："+e.venvDir)
+		if err := os.RemoveAll(e.venvDir); err != nil {
+			bus.Warn("python", "旧 venv 删不干净（可能有进程占着），直接在上面重建："+err.Error())
+		}
+	}
 	base := e.DetectSystemPython()
 	if base == nil {
 		return fmt.Errorf("找不到 python 解释器：请安装 Python 3.9+，或用 `OCR_PYTHON=` 指定路径")
@@ -183,6 +200,9 @@ func (e *Env) RecreateVenv(bus *events.EventBus) error {
 func (e *Env) Install(bus *events.EventBus, extras []string) error {
 	if err := e.EnsureVenv(bus); err != nil {
 		return err
+	}
+	if !e.VenvReady() {
+		return fmt.Errorf("python 环境不完整（venv 缺 pyvenv.cfg）：去「设置 → Python 环境」点「重建 venv」")
 	}
 	target := e.pythonDir
 	if len(extras) > 0 {
@@ -253,6 +273,11 @@ func (e *Env) Status() EnvStatus {
 		status.Base = base
 	}
 	if !e.VenvReady() {
+		if FileExists(e.VenvPython()) {
+			// 半截 venv：直接报能照做的提示，别让用户去读 pip 的英文错误
+			status.State = "error"
+			status.Message = "venv 不完整（缺 pyvenv.cfg）：去「设置 → Python 环境」点「重建 venv」"
+		}
 		return status
 	}
 	status.VenvUsed = true
