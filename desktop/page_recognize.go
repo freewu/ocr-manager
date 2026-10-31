@@ -122,10 +122,10 @@ func (u *ui) splitPane() core.Node {
 	// 预览只在「有文件」时出现：选文件自然就开，点右上角 ✕ 就关。
 	// 没文件时它只能显示一句「在左边点一个文件」，白白占着宽度。
 	preview := base.ResizablePanel{
-		TestID:  "recognize-preview-panel",
-		MinSize: core.Points(180),
-		Visible: func() bool { return u.previewOpen.Get() && len(u.st.files) > 0 },
-		Style:   core.Style{Height: core.Pt(300)},
+		TestID:   "recognize-preview-panel",
+		MinSize:  core.Points(180),
+		Visible:  func() bool { return u.previewOpen.Get() && len(u.st.files) > 0 },
+		Style:    core.Style{Height: core.Pt(300)},
 		Children: []core.Node{u.previewPane()},
 	}
 	return core.View{Style: core.Style{Gap: 6, Width: core.Pct(100)}, Children: []core.Node{
