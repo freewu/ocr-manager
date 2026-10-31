@@ -29,6 +29,8 @@ type ModelSpec struct {
 	Weights     string         `json:"weights"`
 	Extras      []string       `json:"extras"`
 	RequiresGPU bool           `json:"requires_gpu"`
+	MinVRAMGB   int            `json:"min_vram_gb"`
+	MinRAMGB    int            `json:"min_ram_gb"`
 	Platforms   []string       `json:"platforms"`
 	Hidden      bool           `json:"hidden"`
 	SizeHint    string         `json:"size_hint"`
@@ -72,6 +74,12 @@ type RepoInfo struct {
 	Error        *string    `json:"error"`
 }
 
+// Reason 是一条「本机为什么跑不了这个模型」的具体原因。
+type Reason struct {
+	Kind    string `json:"kind"`
+	Message string `json:"message"`
+}
+
 // ModelStatus 是一条模型的运行时状态。
 type ModelStatus struct {
 	ID      string      `json:"id"`
@@ -85,6 +93,7 @@ type ModelStatus struct {
 	ExtOK   bool        `json:"extras_ready"`
 	GPUNeed bool        `json:"requires_gpu"`
 	GPUOK   bool        `json:"gpu_ok"`
+	Reasons []Reason    `json:"reasons"`
 	Workers int         `json:"workers"`
 	Weights WeightsInfo `json:"weights"`
 	Repo    *RepoInfo   `json:"repo"`
@@ -125,6 +134,14 @@ type GpuInfo struct {
 	CheckedAt int64       `json:"checked_at"`
 }
 
+// MemoryInfo 是本机物理内存（MB）。
+type MemoryInfo struct {
+	TotalMB   int    `json:"total_mb"`
+	FreeMB    int    `json:"free_mb"`
+	Error     string `json:"error"`
+	CheckedAt int64  `json:"checked_at"`
+}
+
 // Settings 是识别默认参数。
 type Settings struct {
 	DefaultModel string                    `json:"default_model"`
@@ -147,6 +164,7 @@ type AppInfo struct {
 	Env       EnvStatus         `json:"env"`
 	Op        *Op               `json:"op"`
 	GPU       GpuInfo           `json:"gpu"`
+	Memory    MemoryInfo        `json:"memory"`
 	Models    int               `json:"models"`
 	Visible   int               `json:"visible"`
 	Sources   []string          `json:"sources"`

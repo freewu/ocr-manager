@@ -39,17 +39,20 @@ type WeightsInfo struct {
 
 // ModelStatus 是一条模型的运行时状态。
 type ModelStatus struct {
-	ID      string        `json:"id"`
-	State   string        `json:"state"`
-	Message string        `json:"message"`
-	Error   string        `json:"error,omitempty"`
-	Loaded  bool          `json:"loaded"`
-	Ready   bool          `json:"weights_ready"`
-	NeedsDl bool          `json:"needs_download"`
-	Extras  []string      `json:"extras"`
-	ExtOK   bool          `json:"extras_ready"`
-	GPUNeed bool          `json:"requires_gpu"`
-	GPUOK   bool          `json:"gpu_ok"`
+	ID      string   `json:"id"`
+	State   string   `json:"state"`
+	Message string   `json:"message"`
+	Error   string   `json:"error,omitempty"`
+	Loaded  bool     `json:"loaded"`
+	Ready   bool     `json:"weights_ready"`
+	NeedsDl bool     `json:"needs_download"`
+	Extras  []string `json:"extras"`
+	ExtOK   bool     `json:"extras_ready"`
+	GPUNeed bool     `json:"requires_gpu"`
+	GPUOK   bool     `json:"gpu_ok"`
+	// Reasons 是本机跑不了这条模型的具体原因（空表示能跑）。
+	// 只有 state = unavailable 时才有内容，界面逐条列出来。
+	Reasons []Reason      `json:"reasons"`
 	Workers int           `json:"workers"`
 	Weights WeightsInfo   `json:"weights"`
 	Repo    *hub.RepoInfo `json:"repo,omitempty"`
@@ -139,6 +142,7 @@ func (c *Core) statusOf(spec models.ModelSpec, refresh bool) ModelStatus {
 	}
 	status.Weights = c.weightsInfo(spec)
 	status.Ready = status.Weights.Ready
+	status.Reasons = c.reasonsOf(spec)
 
 	// 依赖是否齐（探测要起 python，缓存状态里已经有就别重复算）
 	if envStatus, err := c.envStatusCached(); err == nil {
@@ -166,12 +170,9 @@ func (c *Core) statusOf(spec models.ModelSpec, refresh bool) ModelStatus {
 
 	// 状态优先级：跑着的 > 报错的 > 准备中 > 就绪 > 空闲
 	switch {
-	case !status.GPUOK:
+	case len(status.Reasons) > 0:
 		status.State = StateUnavailable
-		status.Message = "本机没有 NVIDIA 显卡，这个模型跑不动（装驱动后重新检测）"
-	case spec.Engine == "external":
-		status.State = StateUnavailable
-		status.Message = "外部工具：本应用只登记入口，不代管运行环境"
+		status.Message = reasonSummary(status.Reasons)
 	case current.State == StatePreparing:
 		status.State = StatePreparing
 		status.Message = orString(current.Message, "正在准备…")
@@ -298,11 +299,8 @@ func (c *Core) Prepare(modelID string, force bool) error {
 	if !ok {
 		return fmt.Errorf("未知模型：%s", modelID)
 	}
-	if spec.Engine == "external" {
-		return fmt.Errorf("「%s」是外部工具，本应用不代管它的环境", spec.Name)
-	}
-	if spec.RequiresGPU && !c.GPU.Available {
-		return fmt.Errorf("本机没有 NVIDIA 显卡，无法准备「%s」", spec.Name)
+	if err := c.unavailableGate(spec, "准备"); err != nil {
+		return err
 	}
 
 	c.prepareMu.Lock()
@@ -372,11 +370,8 @@ func (c *Core) Activate(modelID string) error {
 	if !ok {
 		return fmt.Errorf("未知模型：%s", modelID)
 	}
-	if spec.Engine == "external" {
-		return fmt.Errorf("「%s」是外部工具，本应用不代管它的运行环境", spec.Name)
-	}
-	if spec.RequiresGPU && !c.GPU.Available {
-		return fmt.Errorf("本机没有 NVIDIA 显卡，无法启用「%s」", spec.Name)
+	if err := c.unavailableGate(spec, "启用"); err != nil {
+		return err
 	}
 	if err := c.weightsGate(spec); err != nil {
 		return err

@@ -11,6 +11,7 @@ import (
 	ocr "github.com/bluefrog/ocr-manager"
 	"github.com/bluefrog/ocr-manager/internal/events"
 	"github.com/bluefrog/ocr-manager/internal/gpu"
+	"github.com/bluefrog/ocr-manager/internal/hardware"
 	"github.com/bluefrog/ocr-manager/internal/hub"
 	"github.com/bluefrog/ocr-manager/internal/models"
 	"github.com/bluefrog/ocr-manager/internal/paths"
@@ -38,6 +39,7 @@ type Core struct {
 	Bus     *events.EventBus
 	Hub     *hub.Client
 	GPU     gpu.Info
+	Memory  hardware.Memory
 	Version string
 	Started time.Time
 
@@ -109,6 +111,7 @@ func New(opts Options) (*Core, error) {
 		Bus:      bus,
 		Hub:      hub.New(),
 		GPU:      gpu.Detect(),
+		Memory:   hardware.DetectMemory(),
 		Version:  opts.Version,
 		Started:  time.Now(),
 		sink:     sink,

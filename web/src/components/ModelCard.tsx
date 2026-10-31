@@ -68,6 +68,10 @@ export default function ModelCard({ model, busy, progress, onPrepare, onActivate
     return "";
   }, [st]);
 
+  // 本机不可用时逐条说清楚：没显卡 / 显存不够 / 内存不够 / 外部工具没装。
+  // 旧版后端没 reasons 字段，回落到 status.message。
+  const reasons = st?.state === "unavailable" ? (st.reasons ?? []) : [];
+
   return (
     <article className={`card ${active ? "card-active" : ""}`}>
       <div className="card-head">
@@ -106,7 +110,15 @@ export default function ModelCard({ model, busy, progress, onPrepare, onActivate
       )}
 
       {weights && <div className="small muted">{weights}</div>}
-      {hint && <div className="small" style={{ color: "var(--warn)" }}>{hint}</div>}
+      {reasons.length > 0 ? (
+        <ul className="small" style={{ margin: 0, paddingLeft: 18, color: "var(--warn)" }}>
+          {reasons.map((reason, index) => (
+            <li key={`${reason.kind}-${index}`}>{reason.message}</li>
+          ))}
+        </ul>
+      ) : (
+        hint && <div className="small" style={{ color: "var(--warn)" }}>{hint}</div>
+      )}
 
       {working && (
         <div className="col" style={{ gap: 4 }}>

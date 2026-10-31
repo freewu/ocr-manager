@@ -115,11 +115,8 @@ func (c *Core) StartPrepare(modelID string, force bool) error {
 	if !ok {
 		return fmt.Errorf("未知模型：%s", modelID)
 	}
-	if spec.Engine == "external" {
-		return fmt.Errorf("「%s」是外部工具，本应用不代管它的环境", spec.Name)
-	}
-	if spec.RequiresGPU && !c.GPU.Available {
-		return fmt.Errorf("本机没有 NVIDIA 显卡，无法准备「%s」", spec.Name)
+	if err := c.unavailableGate(spec, "准备"); err != nil {
+		return err
 	}
 
 	label := "准备 " + spec.Name

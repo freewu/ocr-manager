@@ -81,6 +81,14 @@ def cmd_list(args: argparse.Namespace) -> None:
             marks.append("GPU")
         extra = " ".join(marks)
         print(f"{m['id']:<24} {st['state']:<12} {m['name']:<26} {extra}")
+        if st["state"] == "unavailable":
+            # 本机不可用时把具体原因逐条打出来（没显卡 / 显存不够 / 内存不够 / 外部工具没装）
+            reasons = st.get("reasons") or []
+            if reasons:
+                for reason in reasons:
+                    print(f"{'':<24} ✗ {reason['message']}")
+            else:
+                print(f"{'':<24} ✗ {st.get('message') or '本机不支持'}")
         if weights["files"]:
             print(f"{'':<24} 权重 {weights['files']} 个文件 {human(weights['bytes'])} @ {weights['path']}")
 

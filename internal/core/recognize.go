@@ -68,11 +68,8 @@ func (c *Core) StartRecognize(req RecognizeRequest) (*Job, error) {
 	if !ok {
 		return nil, fmt.Errorf("未知模型：%s", req.Model)
 	}
-	if spec.Engine == "external" {
-		return nil, fmt.Errorf("「%s」是外部工具，本应用不代管它的运行环境", spec.Name)
-	}
-	if spec.RequiresGPU && !c.GPU.Available {
-		return nil, fmt.Errorf("本机没有 NVIDIA 显卡，无法用「%s」识别", spec.Name)
+	if err := c.unavailableGate(spec, "识别"); err != nil {
+		return nil, err
 	}
 	if len(req.Inputs) == 0 {
 		return nil, fmt.Errorf("没有要识别的文件")

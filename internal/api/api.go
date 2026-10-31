@@ -19,6 +19,7 @@ import (
 	"github.com/bluefrog/ocr-manager/internal/core"
 	"github.com/bluefrog/ocr-manager/internal/events"
 	"github.com/bluefrog/ocr-manager/internal/gpu"
+	"github.com/bluefrog/ocr-manager/internal/hardware"
 	"github.com/bluefrog/ocr-manager/internal/paths"
 )
 
@@ -223,6 +224,7 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"env":       env,
 		"op":        s.Core.CurrentOp(),
 		"gpu":       s.Core.GPU,
+		"memory":    s.Core.Memory,
 		"models":    len(s.Core.Catalog.All()),
 		"visible":   len(s.Core.Catalog.Visible()),
 		"sources":   s.Core.Catalog.Sources(),
@@ -233,10 +235,12 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGPU(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("refresh") == "1" {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "gpu": gpu.Refresh()})
+		// 重新检测顺带把内存也刷一遍：模型卡上的「内存不够」跟着更新
+		s.Core.Memory = hardware.RefreshMemory()
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "gpu": gpu.Refresh(), "memory": s.Core.Memory})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "gpu": gpu.Detect()})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "gpu": gpu.Detect(), "memory": hardware.DetectMemory()})
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -267,11 +271,12 @@ func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
 	}
 	force := r.URL.Query().Get("force") == "1"
 	if spec.Engine == "external" {
-		writeError(w, http.StatusBadRequest, "外部工具模型不需要下载")
+		// 外部工具不用下载：直接把「缺什么」告诉用户（没装命令 / 装了但不归本应用管）
+		writeError(w, http.StatusBadRequest, s.Core.ReasonText(spec))
 		return
 	}
-	if spec.RequiresGPU && !s.Core.GPU.Available {
-		writeError(w, http.StatusConflict, "本机没有 NVIDIA 显卡，无法准备这个模型")
+	if summary := s.Core.ReasonText(spec); summary != "" {
+		writeError(w, http.StatusConflict, "无法准备「"+spec.Name+"」："+summary)
 		return
 	}
 

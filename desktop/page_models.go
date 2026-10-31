@@ -164,8 +164,14 @@ func (u *ui) modelCard(m ModelInfo) core.Node {
 	children := []core.Node{head, meta}
 
 	// 状态消息：有错就把错误亮出来，能直接告诉用户下一步做什么。
+	// 本机不可用时逐条列原因（没显卡 / 显存不够 / 内存不够 / 外部工具没装）。
 	if msg := strings.TrimSpace(m.Status.Error); msg != "" {
 		children = append(children, u.text(fixed(msg), 12, func() core.Color { return u.pal().Danger }))
+	} else if m.Status.State == "unavailable" && len(m.Status.Reasons) > 0 {
+		for _, reason := range m.Status.Reasons {
+			reason := reason
+			children = append(children, u.text(fixed("· "+reason.Message), 12, func() core.Color { return u.pal().Warning }))
+		}
 	} else if msg := strings.TrimSpace(m.Status.Message); msg != "" {
 		children = append(children, u.muted(fixed(msg), 12))
 	}
@@ -316,6 +322,23 @@ func (u *ui) modelDetail(m ModelInfo) core.Node {
 				names = append(names, fmt.Sprintf("%s (%d MiB)", d.Name, d.MemoryMB))
 			}
 			return "GPU：" + strings.Join(names, " · ")
+		}, 11))
+	}
+
+	if m.MinRAMGB > 0 || m.MinVRAMGB > 0 {
+		rows = append(rows, u.muted(func() string {
+			need := []string{}
+			if m.MinVRAMGB > 0 {
+				need = append(need, fmt.Sprintf("显存 ≥ %d GB", m.MinVRAMGB))
+			}
+			if m.MinRAMGB > 0 {
+				need = append(need, fmt.Sprintf("内存 ≥ %d GB", m.MinRAMGB))
+			}
+			text := "硬件要求：" + strings.Join(need, " · ")
+			if info := u.data().info; info != nil && info.Memory.TotalMB > 0 {
+				text += fmt.Sprintf("；本机内存 %d GB", info.Memory.TotalMB/1024)
+			}
+			return text
 		}, 11))
 	}
 

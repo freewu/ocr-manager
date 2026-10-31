@@ -15,6 +15,9 @@
 #   tasks         能力标签：text | layout | table | markdown | formula | pdf
 #   platforms     限定只在某些系统出现（["windows"]），空表示不限
 #   requires_gpu  必须 NVIDIA 显卡；本机没 CUDA 时会直接禁止下载/启用
+#   min_vram_gb   跑这个模型最少要多少显存（GB）；配合 requires_gpu，卡在但显存不够时
+#                 模型卡上会写「显存不够：需要 ≥ 16 GB，本机只有 8 GB」
+#   min_ram_gb    最少要多少系统内存（GB）；不够就写「内存不够」，CPU 吃紧的模型尤其要说清
 #   repo          HuggingFace 仓库，形如 "owner/name"
 #   homepage      官网 / 项目主页，界面上「官网」按钮直接跳过去；
 #                 不填就按 repo 拼 https://huggingface.co/<repo>
@@ -118,6 +121,8 @@ tasks = ["text", "layout", "markdown", "table", "formula"]
 weights = "hub"
 extras = ["vlm"]
 requires_gpu = true
+min_vram_gb = 8
+min_ram_gb = 8
 size_hint = "约 3.5 GiB（bfloat16 权重）"
 probe = true
 featured = true
@@ -139,6 +144,8 @@ tasks = ["text", "markdown", "layout"]
 weights = "hub"
 extras = ["vlm"]
 requires_gpu = true
+min_vram_gb = 16
+min_ram_gb = 16
 size_hint = "约 6.5 GiB（权重）"
 probe = true
 tags = ["gpu", "vlm", "long-doc"]

@@ -31,6 +31,13 @@ export interface WeightsInfo {
   at: number;
 }
 
+/** core.Reason：本机跑不了这条模型的一条具体原因 */
+export interface ModelReason {
+  /** gpu | vram | ram | external | platform */
+  kind: string;
+  message: string;
+}
+
 /** core.ModelStatus */
 export interface ModelStatus {
   id: string;
@@ -44,6 +51,8 @@ export interface ModelStatus {
   extras_ready: boolean;
   requires_gpu: boolean;
   gpu_ok: boolean;
+  /** 本机不可用的具体原因（没显卡 / 显存不够 / 内存不够 / 外部工具没装…） */
+  reasons: ModelReason[];
   workers: number;
   weights: WeightsInfo;
   repo?: RepoInfo | null;
@@ -63,6 +72,8 @@ export interface ModelInfo {
   weights: "hub" | "auto" | "none" | string;
   extras: string[];
   requires_gpu: boolean;
+  min_vram_gb: number;
+  min_ram_gb: number;
   platforms: string[];
   hidden: boolean;
   size_hint: string;
@@ -94,6 +105,14 @@ export interface GpuDevice {
 export interface GpuInfo {
   available: boolean;
   devices: GpuDevice[] | null;
+  error?: string;
+  checked_at: number;
+}
+
+/** hardware.Memory：本机物理内存（MB） */
+export interface MemoryInfo {
+  total_mb: number;
+  free_mb: number;
   error?: string;
   checked_at: number;
 }

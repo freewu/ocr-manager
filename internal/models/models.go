@@ -45,6 +45,11 @@ type ModelSpec struct {
 	Weights     string   `toml:"weights" json:"weights"`
 	Extras      []string `toml:"extras" json:"extras"`
 	RequiresGPU bool     `toml:"requires_gpu" json:"requires_gpu"`
+	// MinVRAMGB 是跑这个模型需要的最小显存（GB），0 表示清单没写要求。
+	// 只有在 RequiresGPU 且本机确实有卡时才比，配不上就把具体差值说清楚。
+	MinVRAMGB int `toml:"min_vram_gb" json:"min_vram_gb"`
+	// MinRAMGB 是最小系统内存（GB），0 表示没写要求。
+	MinRAMGB int `toml:"min_ram_gb" json:"min_ram_gb"`
 	// Platforms 限定这条模型只在某些系统上出现（`["windows"]`）。空表示不限。
 	Platforms []string `toml:"platforms" json:"platforms"`
 	// Hidden 表示这条只在清单里存在、不进模型列表（mock 这种自测用的占位引擎）。
@@ -101,6 +106,17 @@ func (m ModelSpec) RepoCacheDir() string {
 		return ""
 	}
 	return fmt.Sprintf("models--%s--%s", owner, name)
+}
+
+// ExternalCommand 是外部工具的入口命令（`options.command` 的第一个词），
+// 例如 surya 的 `surya_ocr`。用来判断本机到底装没装这个 CLI。
+func (m ModelSpec) ExternalCommand() string {
+	raw, _ := m.Options["command"].(string)
+	fields := strings.Fields(raw)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 // Supports 判断这个模型是否声明了某项能力。

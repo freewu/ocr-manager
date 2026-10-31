@@ -16,6 +16,7 @@ Python venv 管理、产物历史。
 ## 特性
 
 - **多引擎**：RapidOCR（CPU 基线）、Tesseract 5、PaddleOCR PP-OCRv5、dots.ocr / DeepSeek-OCR（VLM，需 GPU）、MinerU / Surya（外部登记）
+- **「本机不可用」要说清为什么**：模型卡上逐条列具体原因——没 NVIDIA 驱动 / CUDA、显存不够（需要 ≥ 16 GB，本机只有 6 GB）、内存不够、外部工具没装命令（`surya_ocr` / `mineru`）
 - **三种权重策略**：`hub`（worker 用 `snapshot_download` 拉）、`auto`（引擎自己管）、`none`（mock / 系统 tesseract）
 - **不许踩坑的报错**：每个失败都会告诉下一步该干什么，例如「先跑 `just env-model rapidocr`」
 - **批量输入**：一次选多张图片 + 多个 PDF，左边文件列表 / 右边预览可拖动分栏，预览能收起
