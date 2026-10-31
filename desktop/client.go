@@ -336,17 +336,32 @@ func (c *client) do(ctx context.Context, method, path string, body any, out any)
 
 // ping 是健康检查：连上就说明后端可以用了。
 func (c *client) ping(ctx context.Context) bool {
+	_, ok := c.health(ctx)
+	return ok
+}
+
+// healthInfo 是 /api/health 的形状：桌面壳拿它判断端口上是谁、是不是老进程。
+type healthInfo struct {
+	OK      bool   `json:"ok"`
+	Service string `json:"service"`
+	Version string `json:"version"`
+	Uptime  int64  `json:"uptime"` // 进程已经跑了多少秒
+	PID     int    `json:"pid"`
+}
+
+// health 探一下端口上的服务是不是 ocr-server（顺带拿版本与 pid）。
+func (c *client) health(ctx context.Context) (healthInfo, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
 	defer cancel()
-	var body struct {
-		OK      bool   `json:"ok"`
-		Service string `json:"service"`
-	}
+	var body healthInfo
 	if err := c.do(ctx, http.MethodGet, "/api/health", nil, &body); err != nil {
-		return false
+		return healthInfo{}, false
 	}
 	// 端口上可能是别的服务（比如 tts-server），认准 service 名
-	return body.OK && body.Service == "ocr-server"
+	if !body.OK || body.Service != "ocr-server" {
+		return healthInfo{}, false
+	}
+	return body, true
 }
 
 func (c *client) info(ctx context.Context) (AppInfo, error) {

@@ -196,11 +196,13 @@ func decodeJSON(r *http.Request, target any) error {
 // ---------------------------------------------------------------- 基础信息
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// pid + uptime 是给桌面壳看的：进程比 bin/ocr-server 还老，就说明跑的是旧二进制。
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"service": "ocr-server",
 		"version": s.Core.VersionString(),
 		"uptime":  int64(time.Since(s.Core.Started).Seconds()),
+		"pid":     os.Getpid(),
 	})
 }
 

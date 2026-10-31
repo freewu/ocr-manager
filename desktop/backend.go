@@ -136,13 +136,95 @@ func (w *tailWriter) String() string {
 	return strings.TrimSpace(string(w.data))
 }
 
+// staleServer 判断端口上跑的是不是「比 bin/ocr-server 还老」的进程。
+//
+// 进程启动时间 = 现在 - uptime；二进制 mtime 比它还新，说明这个进程是
+// 用旧二进制跑起来的（重新编译之后没重启），此时接口可能已经对不上了。
+func staleServer(h healthInfo, bin string) bool {
+	if h.Uptime <= 0 || bin == "" {
+		return false
+	}
+	info, err := os.Stat(bin)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	started := time.Now().Add(-time.Duration(h.Uptime) * time.Second)
+	// 留 3s 余量：二进制刚落盘、进程刚起来时别误判成旧进程
+	return info.ModTime().After(started.Add(3 * time.Second))
+}
+
+// stopPID 结束一个不归自己管的 ocr-server（端口上残留的旧进程）。
+func stopPID(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		// 进程树一起收，否则它拉起的 python worker 会留在后台。
+		kill := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprint(pid))
+		kill.SysProcAttr = hiddenProcAttr()
+		out, err := kill.CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				msg = err.Error()
+			}
+			return errors.New(msg)
+		}
+		return nil
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Kill()
+}
+
+// waitGone 等端口上的后端彻底退出（最多 10s，够它收掉 worker）。
+func waitGone(ctx context.Context, cl *client) bool {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, alive := cl.health(ctx); !alive {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return false
+}
+
 // startServer 启动 ocr-server 并等它健康检查通过。
+//
+// 端口上已经有 ocr-server 就复用它（开发模式下后端由 just dev 托管）；
+// 如果那个进程比 bin/ocr-server 还老，说明是上一次开发留下的旧二进制，
+// 直接结束掉重拉，免得界面跟后端对不上接口。
 func startServer(ctx context.Context, cl *client, onStatus func(string)) error {
 	// 测试或「后端由别的终端托管」时不要自己拉进程
 	if os.Getenv("OCR_NO_SPAWN") != "" {
 		return errors.New("已设置 OCR_NO_SPAWN，不自动启动后端服务")
 	}
 	bin, ok := findServer()
+	if h, alive := cl.health(ctx); alive {
+		// 端口上是一台现成的、跟二进制同期的 ocr-server：复用（开发模式）
+		if !staleServer(h, bin) {
+			return nil
+		}
+		if h.PID <= 0 {
+			return fmt.Errorf("端口 %s 上跑着一个旧的后端（版本 %s，已运行 %ds），但它不支持自动重启：请先结束它，再点「重连」",
+				apiPort(), h.Version, h.Uptime)
+		}
+		if onStatus != nil {
+			onStatus(fmt.Sprintf("发现旧的后端进程（pid %d），正在重启…", h.PID))
+		}
+		if err := stopPID(h.PID); err != nil {
+			return fmt.Errorf("结束旧的后端进程（pid %d）失败：%w", h.PID, err)
+		}
+		if !waitGone(ctx, cl) {
+			return fmt.Errorf("旧的后端进程（pid %d）没有退出，请到「任务管理器」结束它后重试", h.PID)
+		}
+	}
 	if !ok {
 		return errors.New("没找到后端程序 ocr-server：请重新安装本应用，或用 OCR_SERVER 指定它的路径")
 	}
