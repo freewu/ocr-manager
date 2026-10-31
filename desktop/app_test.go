@@ -14,7 +14,8 @@ import (
 func TestMain(m *testing.M) { nsgotest.Main(m) }
 
 // fakeServer 起一个只回静态 JSON 的假后端：UI 只关心形状，不关心真识别。
-func fakeServer(t *testing.T) *httptest.Server {
+// 传 mutate 可以在返回前改一改 mock / rapid 两个模型（比如都改成没启用）。
+func fakeServer(t *testing.T, mutate ...func(mock, rapid map[string]any)) *httptest.Server {
 	t.Helper()
 
 	info := map[string]any{
@@ -70,6 +71,10 @@ func fakeServer(t *testing.T) *httptest.Server {
 		},
 	}
 
+	for _, fn := range mutate {
+		fn(mock, rapid)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, w, map[string]any{"ok": true, "service": "ocr-server", "version": "0.1.0", "uptime": 1})
@@ -117,12 +122,16 @@ func TestShellRenders(t *testing.T) {
 	app.Find("text:OCR Manager")
 	app.Find("text:多引擎文字识别")
 
-	// 识别页：多文件选择 + 预览分栏 + 模型下拉 + 手动路径兜底
+	// 识别页：多文件选择 + 预览分栏 + 模型下拉（模型页上方不再摆输入框）
 	app.Find("text:选文件 → 选模型 → 出 text / markdown / 分块，可导出 Excel")
 	app.Find("id:recognize-pick")
 	app.Find("id:recognize-split")
-	app.Find("id:recognize-paths")
-	app.Find("id:recognize-toggle-preview")
+	if app.Exists("id:recognize-toggle-preview") {
+		t.Error("「收起预览」那行应该已经去掉：预览由选文件自动开、✕ 关")
+	}
+	if app.Exists("id:recognize-paths") {
+		t.Error("没文件对话框才该露出粘贴路径的输入框，平时不应该在")
+	}
 
 	// 模型页
 	app.Press("id:nav-models")
@@ -150,6 +159,27 @@ func TestShellRenders(t *testing.T) {
 	app.Settle()
 	app.WaitFor("text:PDF 最多页数", 5*time.Second)
 	app.Find("id:settings-save")
+}
+
+// TestRecognizeOnlyListsEnabledModels 一个模型都没启用时，下拉不给（选了也跑不了），
+// 改成一句指路 + 一个「去模型页」按钮。
+func TestRecognizeOnlyListsEnabledModels(t *testing.T) {
+	server := fakeServer(t, func(mock, _ map[string]any) {
+		status := mock["status"].(map[string]any)
+		status["state"] = "idle"
+		status["message"] = "可以启用"
+		status["loaded"] = false
+	})
+	defer server.Close()
+	t.Setenv("OCR_API", server.URL)
+	t.Setenv("OCR_NO_SPAWN", "1")
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 840))
+	app.WaitFor("text:还没有启用的模型", 5*time.Second)
+	app.Find("id:recognize-go-models")
+	if app.Exists("id:recognize-model-select") {
+		t.Error("没有已启用的模型时不该出现模型下拉")
+	}
 }
 
 // TestToastOnEmptyRecognize 识别页什么都不填就点开始 → 右下角弹提示。

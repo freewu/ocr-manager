@@ -380,10 +380,12 @@ export default function App() {
         {tab === "recognize" && (
           <RecognizePanel
             models={models}
+            settings={settings}
             job={job}
             onJobStarted={(created) => setJob(created)}
             onFinished={() => setHistoryRevision((n) => n + 1)}
             onError={onError}
+            onGoModels={() => setTab("models")}
           />
         )}
 

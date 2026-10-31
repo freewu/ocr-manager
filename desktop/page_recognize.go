@@ -73,14 +73,16 @@ func (u *ui) inputCard(running bool) core.Node {
 			u.button(fixed("清空"), buttonQuiet, func() bool { return len(u.st.files) == 0 }, u.clearInputs, "recognize-clear"),
 		),
 		u.splitPane(),
-		row(10,
-			fill(u.input(u.pickPath, "也可以直接粘贴图片 / PDF 的完整路径，回车添加", false, 34, "recognize-paths")),
-			u.button(fixed("添加"), buttonQuiet, nil, u.addInputFromText, "recognize-add"),
-		),
-		row(10,
-			fill(u.input(u.maxPages, "PDF 最多页数", false, 34, "recognize-max-pages")),
-			fill(u.input(u.pdfDPI, "PDF 渲染 DPI", false, 34, "recognize-dpi")),
-		),
+		// 只有系统里压根弹不出对话框（没有 zenity / kdialog）才把「粘贴路径」露出来
+		core.Show{
+			When: func() bool { return u.st.needPaste },
+			Then: func(*core.Scope) core.Node {
+				return row(10,
+					fill(u.input(u.pickPath, "粘贴图片 / PDF 的完整路径，回车添加", false, 34, "recognize-paths")),
+					u.button(fixed("添加"), buttonQuiet, nil, u.addInputFromText, "recognize-add"),
+				)
+			},
+		},
 		u.modelSelect(),
 		row(10,
 			u.button(func() string {
@@ -117,14 +119,15 @@ func (u *ui) splitPane() core.Node {
 			Children: []core.Node{u.fileList()},
 		}},
 	}
+	// 预览只在「有文件」时出现：选文件自然就开，点右上角 ✕ 就关。
+	// 没文件时它只能显示一句「在左边点一个文件」，白白占着宽度。
 	preview := base.ResizablePanel{
-		TestID:   "recognize-preview-panel",
-		MinSize:  core.Points(180),
-		Visible:  func() bool { return u.previewOpen.Get() },
-		Style:    core.Style{Height: core.Pt(300)},
+		TestID:  "recognize-preview-panel",
+		MinSize: core.Points(180),
+		Visible: func() bool { return u.previewOpen.Get() && len(u.st.files) > 0 },
+		Style:   core.Style{Height: core.Pt(300)},
 		Children: []core.Node{u.previewPane()},
 	}
-	// 没有文件时预览位置给一句引导，别让右边空一片
 	return core.View{Style: core.Style{Gap: 6, Width: core.Pct(100)}, Children: []core.Node{
 		base.ResizablePanelGroup{
 			TestID:      "recognize-split",
@@ -138,21 +141,6 @@ func (u *ui) splitPane() core.Node {
 			HandleThumbStyle: core.Style{Background: u.pal().Border},
 			Style:            core.Style{Width: core.Pct(100), Height: core.Pt(300)},
 		},
-		row(10,
-			u.muted(func() string {
-				if u.previewOpen.Get() {
-					return "预览可以收起：右上角 ✕"
-				}
-				return "预览已收起"
-			}, 11),
-			fill(core.View{}),
-			u.button(func() string {
-				if u.previewOpen.Get() {
-					return "收起预览"
-				}
-				return "展开预览"
-			}, buttonQuiet, nil, u.togglePreview, "recognize-toggle-preview"),
-		),
 	}}
 }
 
@@ -355,8 +343,12 @@ func (u *ui) previewPane() core.Node {
 func (u *ui) modelSelect() core.Node {
 	usable := u.usableModels()
 	if len(usable) == 0 {
+		// 一个都没启用：别给个空下拉，直接指路去模型页
 		return u.card(12,
-			u.muted(fixed("还没有可用模型：先去「模型」页下载/启用一个（RapidOCR 最省事）。"), 12),
+			row(10,
+				fill(u.muted(fixed("还没有启用的模型：先去「模型」页启用一个（RapidOCR 最省事）。"), 12)),
+				u.button(fixed("去模型页"), buttonPrimary, nil, func() { u.page.Set("models") }, "recognize-go-models"),
+			),
 		)
 	}
 	items := make([]core.Node, 0, len(usable))
@@ -810,14 +802,14 @@ func (u *ui) blocksView(page *ResultPage) core.Node {
 }
 
 // usableModels 只留本机跑得起来的模型。
+// usableModels 只列「已经启用」的模型：没加载的引擎选了也跑不起来。
 func (u *ui) usableModels() []ModelInfo {
 	all := u.data().models
 	out := make([]ModelInfo, 0, len(all))
 	for _, m := range all {
-		if m.Status.State == "unavailable" {
-			continue
+		if m.Status.State == "ready" || m.Status.State == "running" {
+			out = append(out, m)
 		}
-		out = append(out, m)
 	}
 	return out
 }

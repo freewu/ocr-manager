@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,8 @@ func (u *ui) pickInputs() {
 		u.post(func() {
 			u.st.busy = ""
 			if err != nil {
+				// 这台机器上没有 zenity / kdialog：把「粘贴路径」框露出来（平时不占位）
+				u.st.needPaste = errors.Is(err, errNoDialog)
 				u.st.fail(err.Error())
 			} else if len(paths) > 0 {
 				u.addInputPaths(paths)
@@ -85,6 +88,8 @@ func (u *ui) hasInput(path string) bool {
 func (u *ui) selectInput(path string) {
 	file, ok := u.inputAt(path)
 	u.selFile.Set(path)
+	// 选文件就等于要看它：预览自动打开（关掉它靠预览右上角的 ✕）
+	u.previewOpen.Set(true)
 	// 换文件就回到「适应面板」，别带着上一张的缩放和位移
 	u.resetZoom()
 	if !ok {
@@ -174,9 +179,6 @@ func (u *ui) clearInputs() {
 		u.bump()
 	})
 }
-
-// togglePreview 收起 / 展开右侧预览面板。
-func (u *ui) togglePreview() { u.previewOpen.Set(!u.previewOpen.Get()) }
 
 // exportExcel 把识别页当前结果导出成 Excel。
 func (u *ui) exportExcel() {

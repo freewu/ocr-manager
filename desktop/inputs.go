@@ -71,4 +71,4 @@ func newPickedFile(path string) (pickedFile, error) {
 }
 
 // errNoDialog 说明这台机器上找不到可用的文件对话框。
-var errNoDialog = fmt.Errorf("这台机器上没有可用的文件选择对话框，请在「手动添加路径」里粘贴完整路径")
+var errNoDialog = fmt.Errorf("这台机器上没有可用的文件选择对话框（缺 zenity / kdialog），把完整路径粘贴到下面出现的输入框里")

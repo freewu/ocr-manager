@@ -214,8 +214,8 @@ func (u *ui) modelActions(m ModelInfo) []core.Node {
 	id := m.ID
 	busy := func() bool { return u.data().busy != "" }
 	st := m.Status.State
-	// 权重或依赖没到位就不给「启用」：点了只会弹一句「先下载」，不如直接给下一步。
-	canUse := m.Status.Ready && m.Status.ExtOK
+	// 权重要下载的（hub）没下完就不给「启用」；weights=auto/none 由引擎自管，只看依赖。
+	canUse := m.Status.ExtOK && !m.NeedsDownload()
 
 	out := []core.Node{}
 	switch {

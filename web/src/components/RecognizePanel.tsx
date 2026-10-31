@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import type { Job, ModelInfo, OcrResult } from "../types";
+import type { Job, ModelInfo, OcrResult, Settings } from "../types";
 import ResultViewer from "./ResultViewer";
 
 interface Props {
   models: ModelInfo[];
+  /** 设置里的识别默认值（PDF 页数 / DPI 只在设置页改） */
+  settings: Settings | null;
   /** 当前任务（由 App 通过 SSE job 事件维护） */
   job: Job | null;
   onJobStarted: (job: Job) => void;
   onFinished: () => void;
   onError: (message: string) => void;
+  /** 一个模型都没启用时，指路去「模型」页 */
+  onGoModels: () => void;
 }
 
 interface PickedFile {
@@ -30,12 +34,10 @@ function human(bytes: number): string {
   return `${bytes} B`;
 }
 
-export default function RecognizePanel({ models, job, onJobStarted, onFinished, onError }: Props) {
+export default function RecognizePanel({ models, settings, job, onJobStarted, onFinished, onError, onGoModels }: Props) {
   const [picked, setPicked] = useState<PickedFile[]>([]);
   const [over, setOver] = useState(false);
   const [modelId, setModelId] = useState("");
-  const [maxPages, setMaxPages] = useState(20);
-  const [pdfDpi, setPdfDpi] = useState(200);
   const [result, setResult] = useState<OcrResult | null>(null);
   const [starting, setStarting] = useState(false);
   // 预览面板：可以关掉（列表就占满宽度），宽度靠中间的分隔条拖动
@@ -65,17 +67,17 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
     window.addEventListener("mouseup", up);
   }, []);
 
+  // 下拉里只列「已经启用」的模型：没加载的引擎选了也跑不起来
   const usable = useMemo(
-    () => models.filter((m) => m.status?.state !== "unavailable"),
+    () => models.filter((m) => m.status?.state === "ready" || m.status?.state === "running"),
     [models],
   );
 
-  // 默认选「已就绪」里排序最靠前的那个，其次推荐模型
+  // 默认选推荐的那一个（都在已启用里挑，挑不到就留空）
   useEffect(() => {
     if (modelId && usable.some((m) => m.id === modelId)) return;
-    const ready = usable.find((m) => m.status?.state === "ready" || m.status?.state === "running");
     const featured = usable.find((m) => m.featured);
-    setModelId((ready ?? featured ?? usable[0])?.id ?? "");
+    setModelId((featured ?? usable[0])?.id ?? "");
   }, [usable, modelId]);
 
   // 任务完成时把历史里的结果拉回来（同一个 job 只拉一次）
@@ -109,6 +111,8 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
       }
       return next;
     });
+    // 选了文件就是要看它：预览自动打开（关掉它靠预览右上角的 ✕）
+    setPreviewOpen(true);
   }, []);
 
   const status = job?.status ?? "idle";
@@ -164,7 +168,7 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
       const created = await api.recognize(
         picked.map((p) => p.file),
         modelId,
-        { max_pages: maxPages, pdf_dpi: pdfDpi },
+        { max_pages: settings?.max_pages ?? 20, pdf_dpi: settings?.pdf_dpi ?? 200 },
       );
       onJobStarted(created);
     } catch (err) {
@@ -172,7 +176,7 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
     } finally {
       setStarting(false);
     }
-  }, [picked, modelId, maxPages, pdfDpi, onJobStarted, onError]);
+  }, [picked, modelId, settings, onJobStarted, onError]);
 
   const cancel = useCallback(async () => {
     if (!job) return;
@@ -220,11 +224,6 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
               {picked.length === 0 ? "图片与 PDF 可以混选，一次识别全部" : `${picked.length} 个文件`}
             </span>
             <span className="grow" />
-            {picked.length > 0 && (
-              <button className="btn small ghost" onClick={() => setPreviewOpen((v) => !v)}>
-                {previewOpen ? "收起预览" : "展开预览"}
-              </button>
-            )}
             {picked.length > 0 && (
               <button
                 className="btn small ghost"
@@ -409,43 +408,26 @@ export default function RecognizePanel({ models, job, onJobStarted, onFinished, 
             )}
           </div>
 
-          <label className="field">
-            识别模型
-            <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
-              {usable.length === 0 && <option value="">没有可用模型（先在「模型」页启用）</option>}
-              {usable.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                  {m.status?.state === "ready" ? "（已就绪）" : ""}
-                  {m.status?.weights_ready || m.weights === "none" ? "" : "（需下载权重）"}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="row" style={{ gap: 10 }}>
-            <label className="field grow">
-              PDF 最多页数
-              <input
-                type="number"
-                min={1}
-                max={500}
-                value={maxPages}
-                onChange={(e) => setMaxPages(Math.max(1, Number(e.target.value) || 1))}
-              />
+          {usable.length === 0 ? (
+            <div className="row between banner-op" style={{ marginBottom: 8 }}>
+              <span className="small">还没有启用的模型：先去「模型」页启用一个（RapidOCR 最省事）。</span>
+              <button className="btn small primary" onClick={onGoModels}>
+                去模型页
+              </button>
+            </div>
+          ) : (
+            <label className="field">
+              识别模型
+              <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
+                {usable.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                    {m.status?.state === "ready" ? "（已就绪）" : ""}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label className="field grow">
-              PDF 渲染 DPI
-              <input
-                type="number"
-                min={72}
-                max={400}
-                step={10}
-                value={pdfDpi}
-                onChange={(e) => setPdfDpi(Math.max(72, Number(e.target.value) || 200))}
-              />
-            </label>
-          </div>
+          )}
 
           <div className="row">
             <button className="btn primary" disabled={starting || running || picked.length === 0} onClick={start}>

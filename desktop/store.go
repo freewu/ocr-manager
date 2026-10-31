@@ -56,6 +56,8 @@ type store struct {
 	fp string
 	// expanded 记哪些模型卡展开了详情：默认收着，只露摘要
 	expanded map[string]bool
+	// needPaste 只有在系统里弹不出文件对话框时才为真：那时才把「粘贴路径」框露出来
+	needPaste bool
 }
 
 type historyDetail struct {
@@ -464,7 +466,10 @@ func (u *ui) saveSettings() {
 	settings.PDFDPI = intOr(u.pdfDPI.Get(), settings.PDFDPI)
 	settings.MaxSide = intOr(u.maxSide.Get(), settings.MaxSide)
 	settings.HFEndpoint = strings.TrimSpace(u.hfEp.Get())
-	settings.DefaultModel = u.model.Get()
+	// 一个模型都没启用时下拉是空的，别把默认模型一起清掉
+	if id := u.model.Get(); id != "" {
+		settings.DefaultModel = id
+	}
 	u.guard("保存设置", func(ctx context.Context) error {
 		if _, err := u.cl.saveSettings(ctx, settings); err != nil {
 			return err
@@ -665,25 +670,23 @@ func (u *ui) opLabel() string {
 	return fmt.Sprintf("%s（后台 %ds）", op.Label, op.ElapsedMS()/1000)
 }
 
-// pickModel 选出识别页默认模型：清单默认 → 已就绪 → 第一个可用。
+// pickModel 选出识别页默认模型：清单默认的已启用模型 → 随便一个已启用的。
+//
+// 下拉里只列「已启用」的模型，所以这里也只能在它们里面挑；一个都没启用就
+// 返回空串（下次轮询有新模型启用了再挑）。
 func pickModel(models []ModelInfo, preferred string) string {
+	enabled := func(m ModelInfo) bool {
+		return m.Status.State == "ready" || m.Status.State == "running"
+	}
 	for _, m := range models {
-		if m.ID == preferred && m.Status.State != "unavailable" {
+		if m.ID == preferred && enabled(m) {
 			return m.ID
 		}
 	}
 	for _, m := range models {
-		if m.Status.State == "ready" || m.Status.State == "running" {
+		if enabled(m) {
 			return m.ID
 		}
-	}
-	for _, m := range models {
-		if m.Status.State != "unavailable" && m.Weights != "hub" {
-			return m.ID
-		}
-	}
-	if len(models) > 0 {
-		return models[0].ID
 	}
 	return ""
 }

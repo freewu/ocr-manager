@@ -54,8 +54,9 @@ export default function ModelCard({ model, busy, progress, onPrepare, onActivate
   const weights = weightsText(model);
   const usable = st?.state !== "unavailable";
   const active = Boolean(st?.loaded) || st?.state === "ready" || st?.state === "running";
-  // 权重和依赖都到位才给「启用」：不然点了只会报「先下载」，不如直接显示下载。
-  const canActivate = usable && Boolean(st?.weights_ready) && Boolean(st?.extras_ready);
+  // 依赖装上就能启用；只有 hub 权重还要等下载完（auto / none 由引擎自管）
+  const canActivate =
+    usable && Boolean(st?.extras_ready) && (model.weights !== "hub" || Boolean(st?.weights_ready));
   // 已经在后台跑了就别再让点：重复提交只会被后端 409 拒掉
   const working = st?.state === "preparing" || st?.state === "loading";
   const locked = busy !== null || working;
