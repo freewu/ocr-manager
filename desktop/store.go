@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -150,7 +152,29 @@ func newUI(cx *core.Scope) *ui {
 		previewPan:  core.NewSignal(cx, core.Point{}),
 	}
 	cx.Cleanup(stopServer)
+	u.seedTestInputs()
 	return u
+}
+
+// seedTestInputs 是 nsgotest 用的测试入口：`OCR_TEST_INPUTS` 里按
+// `os.PathListSeparator` 分隔的路径直接塞进识别页的输入列表，这样
+// 「文件行的 ✕ 点得到、点了真从列表里消失」这类交互才测得到。
+// 生产里没人设这个变量，等于空操作。
+func (u *ui) seedTestInputs() {
+	raw := strings.TrimSpace(os.Getenv("OCR_TEST_INPUTS"))
+	if raw == "" {
+		return
+	}
+	for _, path := range filepath.SplitList(raw) {
+		file, err := newPickedFile(path)
+		if err != nil {
+			continue
+		}
+		u.st.files = append(u.st.files, file)
+		if u.selFile.Get() == "" {
+			u.selFile.Set(file.Path)
+		}
+	}
 }
 
 // data 读取时让当前绑定跟着 rev 一起更新。

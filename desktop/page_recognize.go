@@ -206,7 +206,12 @@ func (u *ui) fileRow(file pickedFile) core.Node {
 				TestID:  "recognize-file-" + file.Name,
 				OnPress: func(core.PressEvent) { u.selectInput(file.Path) },
 				StyleFunc: func() core.Style {
-					return core.Style{Width: core.Pct(100), Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8}
+					// 名字占满剩余宽度但要能被压缩：写死 Width(100%) 的话
+					// 后面的 ✕ 会被挤出可视区，用户就再也删不掉文件了。
+					return core.Style{
+						FlexGrow: 1, FlexShrink: 1,
+						Direction: core.Row, AlignItems: core.AlignCenter, Gap: 8,
+					}
 				},
 				Children: []core.Node{
 					core.View{Style: core.Style{Gap: 2}, Children: []core.Node{
@@ -225,11 +230,15 @@ func (u *ui) fileRow(file pickedFile) core.Node {
 				OnPress: func(core.PressEvent) { u.removeInput(file.Path) },
 				StyleFunc: func() core.Style {
 					return core.Style{
-						Padding: core.Symmetric(2, 6), CornerRadius: 6,
+						Width: core.Pt(20), Height: core.Pt(20),
+						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+						Padding: core.All(0), CornerRadius: 6,
 						Hover: &core.Style{Background: u.pal().Danger.Faded(0.16)},
 					}
 				},
-				Children: []core.Node{u.muted(fixed("✕"), 12)},
+				Children: []core.Node{u.text(fixed("✕"), 13, func() core.Color {
+					return u.pal().TextMuted
+				})},
 			},
 		},
 	}

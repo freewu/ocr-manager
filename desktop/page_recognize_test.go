@@ -1,6 +1,16 @@
 package main
 
-import "testing"
+import (
+	"image"
+	"image/color"
+	"image/png"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/oneo-me/nsgo/nsgotest"
+)
 
 // TestGroupBySource 多文件一次识别时按来源文件分 tab。
 func TestGroupBySource(t *testing.T) {
@@ -62,4 +72,55 @@ func TestNewPickedFileRejectsMissing(t *testing.T) {
 	if _, err := newPickedFile("/definitely/not/here.png"); err == nil {
 		t.Fatal("不存在的文件应该报错")
 	}
+}
+
+// writeTinyPNG 写一张 1x1 的合法 PNG，给文件列表用例当输入。
+func writeTinyPNG(t *testing.T, path string) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("建测试图片失败：%v", err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("写测试图片失败：%v", err)
+	}
+	return path
+}
+
+// TestRemoveInputFromList 识别页选中的文件要能一个个删掉。
+//
+// 以前名字按钮写死 Width(100%)，把行尾的 ✕ 挤到可视区外——用户看到的就是
+// 「选进来的文件删不掉」，所以这里连位置一起验。
+func TestRemoveInputFromList(t *testing.T) {
+	dir := t.TempDir()
+	first := writeTinyPNG(t, filepath.Join(dir, "a.png"))
+	second := writeTinyPNG(t, filepath.Join(dir, "b.png"))
+	t.Setenv("OCR_TEST_INPUTS", strings.Join([]string{first, second}, string(os.PathListSeparator)))
+
+	server := fakeServer(t)
+	defer server.Close()
+	t.Setenv("OCR_API", server.URL)
+	t.Setenv("OCR_NO_SPAWN", "1")
+
+	app := nsgotest.Start(t, Root, nsgotest.Size(1200, 840))
+	app.Find("id:recognize-file-a.png")
+	app.Find("id:recognize-file-b.png")
+
+	remove := app.Find("id:recognize-remove-a.png")
+	if remove.Frame.Size.Width <= 0 {
+		t.Fatalf("✕ 宽度是 %v，点不到", remove.Frame.Size.Width)
+	}
+	if right := remove.Offset.X + remove.Frame.Size.Width; right > 1200 {
+		t.Fatalf("✕ 被挤到窗口外了：right=%v", right)
+	}
+
+	app.Press("id:recognize-remove-a.png")
+	app.Settle()
+	if app.Exists("id:recognize-file-a.png") {
+		t.Error("点了 ✕ 之后 a.png 应该从列表里消失")
+	}
+	app.Find("id:recognize-file-b.png")
 }
