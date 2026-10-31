@@ -101,6 +101,11 @@ tags = ["cpu", "gpu", "chinese", "table"]
 lang = "ch"
 use_doc_orientation_classify = false
 use_textline_orientation = true
+# 拍歪的文档才需要矫正（开了会多下载一个 UVDoc 模型、也慢），扫描件用不着。
+use_doc_unwarping = false
+# Paddle 3.x 在 CPU 上默认开 oneDNN（MKLDNN），但它在 PIR 执行器下会遇到
+# `ConvertPirAttribute2RuntimeAttribute not support` 直接崩，所以默认关掉。
+enable_mkldnn = false
 
 [[models]]
 id = "dots-ocr"

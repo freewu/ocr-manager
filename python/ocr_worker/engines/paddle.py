@@ -33,10 +33,7 @@ class PaddleEngine(Engine):
         os.makedirs(cache_dir, exist_ok=True)
         os.environ.setdefault("PADDLE_PDX_CACHE_HOME", cache_dir)
 
-        kwargs: dict[str, Any] = {"lang": str(options.get("lang") or "ch")}
-        for key in ("use_doc_orientation_classify", "use_doc_unwarping", "use_textline_orientation"):
-            if key in options:
-                kwargs[key] = bool(options[key])
+        kwargs = _engine_kwargs(options)
         try:
             self._engine = PaddleOCR(**kwargs)
             self._mode = "predict"
@@ -66,11 +63,50 @@ class PaddleEngine(Engine):
 
     def _run(self, array) -> list[Block]:
         assert self._engine is not None
-        if self._mode == "predict":
-            output = self._engine.predict(array)
-        else:
-            output = self._engine.ocr(array)
+        try:
+            if self._mode == "predict":
+                output = self._engine.predict(array)
+            else:
+                output = self._engine.ocr(array)
+        except Exception as exc:  # noqa: BLE001
+            raise _explain(exc) from exc
         return _parse(output)
+
+
+# paddle 的 oneDNN 后端在 PIR 执行器下没实现的算子：报错只有底层 C++ 名字，
+# 用户完全不知道该怎么办，这里翻成人话。
+ONEDNN_MARK = "ConvertPirAttribute2RuntimeAttribute"
+
+
+def _engine_kwargs(options: dict[str, Any]) -> dict[str, Any]:
+    """把模型选项翻成 PaddleOCR 的构造参数。
+
+    Paddle 3.x 在 CPU 上默认开 oneDNN（MKLDNN）推理，但它在 PIR 新执行器下
+    有很多算子没实现，典型报错（识别必崩）：
+
+        NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
+        [pir::ArrayAttribute<pir::DoubleAttribute>]
+
+    所以默认走纯 paddle 后端；想试 MKLDNN 加速的在模型选项里写
+    `enable_mkldnn = true`。
+    """
+    kwargs: dict[str, Any] = {"lang": str(options.get("lang") or "ch")}
+    for key in ("use_doc_orientation_classify", "use_doc_unwarping", "use_textline_orientation"):
+        if key in options:
+            kwargs[key] = bool(options[key])
+    kwargs["enable_mkldnn"] = bool(options.get("enable_mkldnn", False))
+    return kwargs
+
+
+def _explain(exc: Exception) -> Exception:
+    """把 paddle 底层那些「看不懂但好修」的异常翻成能照着做的提示。"""
+    if ONEDNN_MARK in str(exc):
+        return EngineError(
+            "Paddle 的 oneDNN（MKLDNN）加速在当前的 paddlepaddle 上跑不起来："
+            "模型选项里把 enable_mkldnn 关掉（默认就是关的），"
+            "或在「设置 → Python 环境」里把 paddlepaddle 升级到 3.1 以上"
+        )
+    return exc
 
 
 def _parse(output: Any) -> list[Block]:
