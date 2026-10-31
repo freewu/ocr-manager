@@ -379,10 +379,10 @@ func (c *Core) Activate(modelID string) error {
 		return fmt.Errorf("本机没有 NVIDIA 显卡，无法启用「%s」", spec.Name)
 	}
 	if c.needsPrepare(spec) && !c.weightsInfo(spec).Ready {
-		return fmt.Errorf("「%s」还没下载权重，先点「下载」", spec.Name)
+		return fmt.Errorf("「%s」还没下载权重，先点模型卡上的「下载权重」", spec.Name)
 	}
 	if !c.extrasReady(spec) {
-		return fmt.Errorf("「%s」的 python 依赖还没装，先点「下载」", spec.Name)
+		return fmt.Errorf("「%s」的 python 依赖还没装：点模型卡上的「安装依赖」，或在「设置 → Python 环境」里装", spec.Name)
 	}
 
 	c.setState(modelID, StateLoading, "正在加载模型…")
