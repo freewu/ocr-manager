@@ -43,9 +43,44 @@ def run(cmd: list[str], cwd: Path) -> int:
     return subprocess.run(cmd, cwd=cwd).returncode
 
 
+def newest_mtime(paths: list[Path]) -> float:
+    """这些文件 / 目录里最新的修改时间（不存在的当作 0）。"""
+    newest = 0.0
+    for path in paths:
+        if not path.exists():
+            continue
+        if path.is_file():
+            newest = max(newest, path.stat().st_mtime)
+            continue
+        for child in path.rglob("*"):
+            # 测试跑出来的 __pycache__ / .pyc 不算源码改动
+            if "__pycache__" in child.parts or child.suffix == ".pyc":
+                continue
+            if child.is_file():
+                newest = max(newest, child.stat().st_mtime)
+    return newest
+
+
+def out_of_date(target: Path, sources: list[Path]) -> bool:
+    """target 不存在、或比 sources 旧 → 需要重建。
+
+    「编译产物存在就跳过」是踩过的坑：改了后端代码再 `just desktop`，窗口里
+    还是旧的 ocr-server，但界面是新的——症状看起来就是「修好的功能又坏了」
+    或者「报错说的按钮跟界面对不上」。所以这里按 mtime 判，不按存在判。
+    """
+    if not target.exists():
+        return True
+    return newest_mtime(sources) > target.stat().st_mtime
+
+
 def ensure_web() -> int:
-    """桌面壳托管的是 web/dist，没有就先构建一份。"""
-    if (WEB / "dist" / "index.html").exists():
+    """桌面壳托管的是 web/dist：没有、或前端源码比它新就先构建一份。"""
+    sources = [
+        WEB / "src", WEB / "public",
+        WEB / "index.html", WEB / "package.json", WEB / "vite.config.ts",
+        WEB / "tsconfig.json", WEB / "tsconfig.node.json",
+    ]
+    if not out_of_date(WEB / "dist" / "index.html", sources):
         return 0
     npm = which("npm")
     if not (WEB / "node_modules").exists():
@@ -59,10 +94,16 @@ def server_exe() -> Path:
 
 
 def ensure_server() -> int:
-    if server_exe().exists():
+    """bin/ocr-server 比后端源码旧就重编（go build 有缓存，很快）。"""
+    sources = [
+        ROOT / "cmd", ROOT / "internal", ROOT / "python", ROOT / "config",
+        ROOT / "assets.go", ROOT / "catalog.go", ROOT / "go.mod", ROOT / "go.sum",
+    ]
+    target = server_exe()
+    if not out_of_date(target, sources):
         return 0
     BIN.mkdir(exist_ok=True)
-    return run([GO, "build", "-o", str(server_exe()), "./cmd/ocr-server"], ROOT)
+    return run([GO, "build", "-o", str(target), "./cmd/ocr-server"], ROOT)
 
 
 def host_target() -> str:
