@@ -378,8 +378,8 @@ func (c *Core) Activate(modelID string) error {
 	if spec.RequiresGPU && !c.GPU.Available {
 		return fmt.Errorf("本机没有 NVIDIA 显卡，无法启用「%s」", spec.Name)
 	}
-	if c.needsPrepare(spec) && !c.weightsInfo(spec).Ready {
-		return fmt.Errorf("「%s」还没下载权重，先点模型卡上的「下载权重」", spec.Name)
+	if err := c.weightsGate(spec); err != nil {
+		return err
 	}
 	if !c.extrasReady(spec) {
 		return fmt.Errorf("「%s」的 python 依赖还没装：点模型卡上的「安装依赖」，或在「设置 → Python 环境」里装", spec.Name)
@@ -420,6 +420,17 @@ func (c *Core) Deactivate(modelID string) error {
 // needsPrepare 表示必须走一次「下载」才能用。
 func (c *Core) needsPrepare(spec models.ModelSpec) bool {
 	return len(pyenv.ForModel(spec)) > 0 || spec.NeedsDownload()
+}
+
+// weightsGate 是「权重」这一关：只有 hub 模式要等下载完成，
+// auto / none 由引擎自己管（weightsInfo 直接算就绪），不会卡在这里。
+//
+// 启用与识别共用这一处，报错文案才跟界面上的按钮名对得上（「下载权重」）。
+func (c *Core) weightsGate(spec models.ModelSpec) error {
+	if !spec.NeedsDownload() || c.weightsInfo(spec).Ready {
+		return nil
+	}
+	return fmt.Errorf("「%s」还没下载权重：先点模型卡上的「下载权重」", spec.Name)
 }
 
 func (c *Core) extrasReady(spec models.ModelSpec) bool {

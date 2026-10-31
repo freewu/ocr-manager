@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/bluefrog/ocr-manager/internal/models"
@@ -53,5 +54,41 @@ func TestWeightsInfoHubNeedsMarker(t *testing.T) {
 	}
 	if info.Path != "/tmp/dots" || info.Files != 3 {
 		t.Errorf("标记内容没读回来：%+v", info)
+	}
+}
+
+// TestWeightsGateSkipsEngineManaged 权重由引擎自管的模型不该被「先下载权重」挡住：
+// 启用和识别都走这一关，卡住的话界面上怎么点都点不动（用户看到的就是
+// 「启用失败：还没下载权重」）。
+func TestWeightsGateSkipsEngineManaged(t *testing.T) {
+	c := &Core{Paths: testPaths(t)}
+	for _, spec := range []models.ModelSpec{
+		{ID: "rapidocr", Name: "RapidOCR（PP-OCR ONNX）", Weights: models.WeightsAuto, Extras: []string{"rapidocr"}},
+		{ID: "mock", Name: "离线演示（Mock）", Weights: models.WeightsNone},
+	} {
+		if err := c.weightsGate(spec); err != nil {
+			t.Errorf("%s（weights=%s）不该被权重挡住：%v", spec.ID, spec.WeightsMode(), err)
+		}
+	}
+}
+
+// TestWeightsGateBlocksHub 要下 Hub 权重的模型没下之前得拦住，而且报错要点名界面上的按钮。
+func TestWeightsGateBlocksHub(t *testing.T) {
+	c := &Core{Paths: testPaths(t)}
+	spec := models.ModelSpec{ID: "dots", Name: "dots.ocr", Weights: models.WeightsHub, Repo: "owner/dots"}
+
+	err := c.weightsGate(spec)
+	if err == nil {
+		t.Fatal("没下过权重的 hub 模型应该被挡住")
+	}
+	if !strings.Contains(err.Error(), "下载权重") {
+		t.Errorf("报错要指向界面上的「下载权重」按钮：%v", err)
+	}
+
+	if err := c.writeWeightsMarker(spec, WeightsInfo{Path: "/tmp/dots"}); err != nil {
+		t.Fatalf("写标记失败：%v", err)
+	}
+	if err := c.weightsGate(spec); err != nil {
+		t.Errorf("下载完（有标记）之后不该再拦：%v", err)
 	}
 }

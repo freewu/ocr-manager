@@ -78,10 +78,10 @@ func (c *Core) StartRecognize(req RecognizeRequest) (*Job, error) {
 		return nil, fmt.Errorf("没有要识别的文件")
 	}
 	if !c.extrasReady(spec) && spec.Engine != "mock" {
-		return nil, fmt.Errorf("「%s」的依赖没装好：先点模型卡上的「下载」", spec.Name)
+		return nil, fmt.Errorf("「%s」的依赖没装好：先点模型卡上的「安装依赖」", spec.Name)
 	}
-	if c.needsPrepare(spec) && !c.weightsInfo(spec).Ready {
-		return nil, fmt.Errorf("「%s」还没下载权重：先点模型卡上的「下载」", spec.Name)
+	if err := c.weightsGate(spec); err != nil {
+		return nil, err
 	}
 
 	primary := req.Inputs[0]
