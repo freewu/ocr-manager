@@ -65,9 +65,11 @@ func (u *ui) logsPage() core.Node {
 				}
 			},
 			Children: []core.Node{core.Scroll{
-				TestID:   "page-scroll",
-				Style:    core.Style{FlexGrow: 1, Width: core.Pct(100)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 4, Width: core.Pct(100)}, Children: rows}},
+				TestID: "page-scroll",
+				// HideIndicator：见 ui.go 里 scrollList 的注释（NSGo 拖滚动条会 panic）
+				HideIndicator: true,
+				Style:         core.Style{FlexGrow: 1, Width: core.Pct(100)},
+				Children:      []core.Node{core.View{Style: core.Style{Gap: 4, Width: core.Pct(100)}, Children: rows}},
 			}},
 		},
 	)

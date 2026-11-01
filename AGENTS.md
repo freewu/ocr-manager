@@ -46,6 +46,7 @@ just cli info       # 跟运行中的服务对话（模型 / 环境 / 日志）
 - **UI 文案不许出现 `just ...`**：这是要独立发布的应用，错误提示一律指向界面操作（「设置 → Python 环境」点「安装依赖」、模型卡点「下载」）。
 - **中文注释、中文文案**：报错要能直接告诉用户下一步点哪里。
 - **NSGo 的坑**：没有 `Scope.UseEffect`（用 goroutine + `time.NewTimer`）；没有托盘 API（`desktop/tray_windows.go` 直接用 Win32）；组件在 `base` 包不在 `core`；`fill()` 容器记得 `FlexShrink: 1`；`nsgotest` 判存在用 `app.Exists`。
+- **`core.Scroll` 一律带 `HideIndicator: true`**：NSGo 的 Windows 滚动条拖拽会 nil 解引用 panic（内部 `pressBar → dragBar` 里 `w.barDrag` 已被清空，整个窗口直接挂），而**淡出后看不见的指示条照样能命中**，等于右侧边缘随便一点就崩。关掉指示器后 `barIn` 不把它当命中区域，这条路就走不到了（滚轮 / 拖动 / 键盘照常滚）。新增滚动容器走 `scrollList()`，别手写 `core.Scroll{}` 忘了这个字段。上游 v0.0.0-20261031 仍有此 bug，升级也修不了。
 - **桌面壳的图标**来自 `desktop/assets/Icon.png`，由 NSGo 打包时编成 exe 资源——所以要用 `just desktop` / `just desktop-build`，裸 `go run` 出来的窗口没有图标。
 - **worker 协议稳定**：dup fd1 做协议通道、stdout 重定向 stderr，单请求失败只回 error 不崩进程，同 worker 请求串行。
 - **health 自报家门**：`/api/health` 必须带 `"service":"ocr-server"`，客户端和 doctor 都校验（历史上因为端口串台误连过 tts-server）。

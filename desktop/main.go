@@ -27,7 +27,9 @@ func main() {
 			return
 		}
 		msg := fmt.Sprint(r)
-		fmt.Fprintf(os.Stderr, "启动界面失败：%v\n", r)
+		// 这条 defer 不只管启动：窗口跑起来以后（点滚动条之类）也可能 panic，
+		// 文案别写成「启动失败」误导人。
+		fmt.Fprintf(os.Stderr, "界面异常退出：%v\n", r)
 		// 光一句 nil pointer 谁也修不了，调用栈一起打出来（启动期只有一次，不影响性能）。
 		fmt.Fprintf(os.Stderr, "%s\n", debug.Stack())
 		// 只有确实是 GTK 缺失才搬出安装命令，别让别的 panic 也套上这句话。

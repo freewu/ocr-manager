@@ -384,10 +384,16 @@ func (u *ui) pageRoot(title, subtitle string, actions []core.Node, body ...core.
 }
 
 // scrollList 把一组卡片放进可滚动的列里。
+//
+// `HideIndicator` 别去掉：NSGo（Windows 壳）拖滚动条指示器时会 nil 解引用 panic ——
+// `pressBar → dragBar` 里 `w.barDrag` 已经被清空，整个窗口直接挂掉。
+// 关掉指示器后 `barIn` 不再把那个矩形当命中区域，这条路就走不到了；
+// 滚动本身不受影响（滚轮 / 拖动 / 键盘都还能用）。
 func scrollList(children []core.Node) core.Node {
 	return core.Scroll{
-		TestID: "page-scroll",
-		Style:  core.Style{FlexGrow: 1, Width: core.Pct(100)},
+		TestID:        "page-scroll",
+		HideIndicator: true,
+		Style:         core.Style{FlexGrow: 1, Width: core.Pct(100)},
 		Children: []core.Node{core.View{
 			Style:    core.Style{Gap: 12, Padding: core.Edges{Right: 4, Bottom: 8}, Width: core.Pct(100)},
 			Children: children,

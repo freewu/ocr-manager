@@ -43,8 +43,10 @@ func (u *ui) historyPage() core.Node {
 				fill(u.muted(func() string { return fmt.Sprintf("%d 条", len(items)) }, 11)),
 			),
 			core.Scroll{
-				Style:    core.Style{FlexGrow: 1, Width: core.Pct(100)},
-				Children: []core.Node{core.View{Style: core.Style{Gap: 6}, Children: list}},
+				// HideIndicator：见 ui.go 里 scrollList 的注释（NSGo 拖滚动条会 panic）
+				HideIndicator: true,
+				Style:         core.Style{FlexGrow: 1, Width: core.Pct(100)},
+				Children:      []core.Node{core.View{Style: core.Style{Gap: 6}, Children: list}},
 			},
 		},
 	}
@@ -199,8 +201,10 @@ func (u *ui) historyDetail() core.Node {
 	return core.View{
 		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pct(100)},
 		Children: []core.Node{core.Scroll{
-			Style:    core.Style{Width: core.Pct(100)},
-			Children: []core.Node{u.card(16, rows...)},
+			// HideIndicator：见 ui.go 里 scrollList 的注释（NSGo 拖滚动条会 panic）
+			HideIndicator: true,
+			Style:         core.Style{Width: core.Pct(100)},
+			Children:      []core.Node{u.card(16, rows...)},
 		}},
 	}
 }

@@ -37,7 +37,9 @@ func (u *ui) recognizePage() core.Node {
 	return u.pageRoot("识别", "选文件 → 选模型 → 出 text / markdown / 分块，可导出 Excel", actions,
 		core.Scroll{
 			TestID: "page-scroll",
-			Style:  core.Style{FlexGrow: 1, Width: core.Pct(100)},
+			// HideIndicator：见 ui.go 里 scrollList 的注释（NSGo 拖滚动条会 panic）
+			HideIndicator: true,
+			Style:         core.Style{FlexGrow: 1, Width: core.Pct(100)},
 			Children: []core.Node{core.View{
 				Style: core.Style{Gap: 12, Width: core.Pct(100)},
 				Children: []core.Node{
@@ -177,7 +179,9 @@ func (u *ui) fileList() core.Node {
 		},
 		Children: []core.Node{core.Scroll{
 			TestID: "recognize-file-scroll",
-			Style:  core.Style{Width: core.Pct(100), FlexGrow: 1},
+			// HideIndicator：见 ui.go 里 scrollList 的注释（NSGo 拖滚动条会 panic）
+			HideIndicator: true,
+			Style:         core.Style{Width: core.Pct(100), FlexGrow: 1},
 			Children: []core.Node{core.View{
 				Style:    core.Style{Gap: 4, Width: core.Pct(100)},
 				Children: rows,
@@ -751,7 +755,9 @@ func (u *ui) preText(get func() string) core.Node {
 			}
 		},
 		Children: []core.Node{core.Scroll{
-			Style: core.Style{Width: core.Pct(100)},
+			// HideIndicator：见 ui.go 里 scrollList 的注释（NSGo 拖滚动条会 panic）
+			HideIndicator: true,
+			Style:         core.Style{Width: core.Pct(100)},
 			Children: []core.Node{u.mono(func() string {
 				text := get()
 				if strings.TrimSpace(text) == "" {
@@ -804,8 +810,10 @@ func (u *ui) blocksView(page *ResultPage) core.Node {
 			}
 		},
 		Children: []core.Node{core.Scroll{
-			Style:    core.Style{Width: core.Pct(100)},
-			Children: []core.Node{core.View{Style: core.Style{Gap: 4}, Children: rows}},
+			// HideIndicator：见 ui.go 里 scrollList 的注释（NSGo 拖滚动条会 panic）
+			HideIndicator: true,
+			Style:         core.Style{Width: core.Pct(100)},
+			Children:      []core.Node{core.View{Style: core.Style{Gap: 4}, Children: rows}},
 		}},
 	}
 }
