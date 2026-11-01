@@ -9,7 +9,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "ready", label: "可直接用" },
   { id: "missing", label: "缺依赖/权重" },
   { id: "gpu", label: "需要 GPU" },
-  { id: "external", label: "外部登记" },
+  { id: "external", label: "命令行工具" },
 ];
 
 function match(model: ModelInfo, filter: Filter): boolean {

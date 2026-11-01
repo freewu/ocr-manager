@@ -9,7 +9,7 @@
 #   id            唯一标识（URL / 文件名里使用，建议小写 + 连字符）
 #   name          展示名
 #   engine        python worker 里的引擎实现：mock | rapidocr | tesseract
-#                 | paddle | vlm | external
+#                 | paddle | vlm | external（external = 调独立命令行：MinerU / Surya）
 #   weights       权重来源：hub（HF 仓库，需要「下载」）| auto（引擎自己管）
 #                 | none（不需要）。不写就按 repo 猜。
 #   tasks         能力标签：text | layout | table | markdown | formula | pdf
@@ -160,15 +160,18 @@ id = "mineru"
 name = "MinerU 2.5（PDF 解析）"
 engine = "external"
 repo = "opendatalab/MinerU"
-description = "面向 PDF 的文档解析流水线：版面、公式、表格、图片一并抽成 Markdown，适合论文与扫描件批量入库。它是一个独立 CLI，本应用不代管它的环境；这里只登记入口与用法，方便对比。"
+description = "面向 PDF 的文档解析流水线：版面、公式、表格、图片一并抽成 Markdown，适合论文与扫描件批量入库。点「安装命令」会把 mineru 装进应用自己的 python 环境（约 2 GB，带 torch），权重首次运行时自己下。"
 languages = ["zh", "en"]
 tasks = ["text", "layout", "table", "formula", "markdown", "pdf"]
-weights = "none"
-size_hint = "外部工具（`pip install mineru`）"
+extras = ["mineru"]
+weights = "auto"
+size_hint = "命令行（pip install mineru，权重约 1 GiB）"
 tags = ["pdf", "external", "markdown"]
 
 [models.options]
+# 展示给用户看的用法；引擎实际拼的是 `mineru -p <图片> -o <临时目录>`
 command = "mineru -p <pdf> -o <out>"
+cli_timeout = 1800
 
 [[models]]
 id = "surya"
@@ -176,12 +179,15 @@ name = "Surya（多语言 OCR）"
 engine = "external"
 repo = "datalab-to/surya"
 homepage = "https://github.com/datalab-to/surya"
-description = "90+ 语言的检测 / 识别 / 版面 / 阅读顺序工具包，自带命令行与 Python API。同样作为外部模型登记：需要单独 `pip install surya-ocr`，本应用不代管它的权重。"
+description = "90+ 语言的检测 / 识别 / 版面 / 阅读顺序工具包。点「安装命令」会把 surya-ocr 装进应用自己的 python 环境，识别时调它的 surya_ocr 命令行，权重首次运行时自己下。"
 languages = ["zh", "en", "ja", "ar", "hi"]
 tasks = ["text", "layout", "table"]
-weights = "none"
-size_hint = "外部工具（`pip install surya-ocr`，权重约 1 GiB）"
+extras = ["surya"]
+weights = "auto"
+size_hint = "命令行（pip install surya-ocr，权重约 1 GiB）"
 tags = ["multilingual", "external", "layout"]
 
 [models.options]
+# 展示给用户看的用法；引擎实际拼的是 `surya_ocr <图片> --output_dir <临时目录>`
 command = "surya_ocr <image>"
+cli_timeout = 1800

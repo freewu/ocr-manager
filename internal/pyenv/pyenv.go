@@ -32,6 +32,8 @@ var probes = []moduleProbe{
 	{"tesseract", []string{"pytesseract"}},
 	{"paddle", []string{"paddleocr"}},
 	{"vlm", []string{"torch", "transformers"}},
+	{"surya", []string{"surya"}},
+	{"mineru", []string{"mineru"}},
 }
 
 // EnvStatus 是「python 环境」的整体状态。
@@ -298,7 +300,8 @@ func (e *Env) Status() EnvStatus {
 	if _, err := exec.LookPath("tesseract"); err == nil {
 		status.Extras["tesseract_binary"] = true
 	}
-	core := status.Extras["rapidocr"] || status.Extras["paddle"] || status.Extras["tesseract"] || status.Extras["vlm"]
+	core := status.Extras["rapidocr"] || status.Extras["paddle"] || status.Extras["tesseract"] || status.Extras["vlm"] ||
+		status.Extras["surya"] || status.Extras["mineru"]
 	if core {
 		status.State, status.Message = "ready", "python 环境就绪"
 	} else {
@@ -331,11 +334,32 @@ func ForModel(spec models.ModelSpec) []string {
 			out = append(out, strings.TrimSpace(extra))
 		}
 	}
-	// external 只是个登记项，不装任何东西
-	if spec.Engine == "external" {
-		return nil
-	}
 	return out
+}
+
+// CommandPath 返回 venv 里某个命令行入口的路径（`pip install` 装的 surya_ocr 就在这里）。
+//
+// 找不到就返回空串：外部工具（MinerU / Surya）靠它判断「依赖装了但命令没出来」。
+func (e *Env) CommandPath(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	dir := filepath.Dir(e.VenvPython())
+	suffixes := []string{""}
+	if runtime.GOOS == "windows" {
+		suffixes = []string{".exe", ".bat", ".cmd", ""}
+	}
+	for _, suffix := range suffixes {
+		candidate := filepath.Join(dir, name+suffix)
+		if FileExists(candidate) {
+			return candidate
+		}
+	}
+	if path, err := exec.LookPath(name); err == nil {
+		return path
+	}
+	return ""
 }
 
 // RunStreaming 跑一条命令，把输出逐行变成事件（长任务靠它看进度）。

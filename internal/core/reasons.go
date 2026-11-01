@@ -2,12 +2,12 @@ package core
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"github.com/bluefrog/ocr-manager/internal/gpu"
 	"github.com/bluefrog/ocr-manager/internal/hardware"
 	"github.com/bluefrog/ocr-manager/internal/models"
+	"github.com/bluefrog/ocr-manager/internal/pyenv"
 )
 
 // 本机不可用的原因分类（界面按 kind 挑文案，CLI 也能按它过滤）。
@@ -15,7 +15,7 @@ const (
 	ReasonGPU      = "gpu"      // 没有 NVIDIA 显卡 / CUDA
 	ReasonVRAM     = "vram"     // 显存不够
 	ReasonRAM      = "ram"      // 系统内存不够
-	ReasonExternal = "external" // 外部工具，本应用不代管
+	ReasonExternal = "external" // 外部工具：命令装了但跑不起来
 	ReasonPlatform = "platform" // 系统不支持
 )
 
@@ -71,7 +71,10 @@ func (c *Core) reasonsOf(spec models.ModelSpec) []Reason {
 	}
 
 	if spec.Engine == "external" {
-		out = append(out, Reason{Kind: ReasonExternal, Message: externalReason(spec)})
+		// 外部工具（MinerU / Surya）现在也走「安装命令」：依赖没装是待安装，不算不可用。
+		if message := c.externalReason(spec); message != "" {
+			out = append(out, Reason{Kind: ReasonExternal, Message: message})
+		}
 	}
 
 	if spec.RequiresGPU {
@@ -132,20 +135,37 @@ func bestGPU(devices []gpu.Device) (gpu.Device, bool) {
 	return best, found
 }
 
-// externalReason 说清楚外部工具「缺什么」：没装命令 / 装了但不归本应用管。
-func externalReason(spec models.ModelSpec) string {
+// externalReason 只在「依赖装好了、命令却没出来」时说话。
+//
+// 依赖没装属于正常待安装状态（卡片上有「安装命令」按钮），不应该是「本机不可用」。
+func (c *Core) externalReason(spec models.ModelSpec) string {
+	extrasReady := len(pyenv.ForModel(spec)) == 0
+	if !extrasReady && c.Env != nil {
+		extrasReady = c.extrasReady(spec)
+	}
+	lookup := func(name string) string {
+		if c.Env == nil {
+			return ""
+		}
+		return c.Env.CommandPath(name)
+	}
+	return externalMissingReason(spec, extrasReady, lookup)
+}
+
+// externalMissingReason 是纯函数版本（方便单测）：依赖齐了但命令找不到才报原因。
+func externalMissingReason(spec models.ModelSpec, extrasReady bool, lookup func(string) string) string {
 	command := spec.ExternalCommand()
 	if command == "" {
-		return "外部工具：本应用只登记入口，不代管它的运行环境"
+		return "清单里没写 options.command，不知道要调哪个命令行：在模型清单里补上再刷新"
 	}
-	if path, err := exec.LookPath(command); err == nil {
-		return fmt.Sprintf(
-			"外部工具：本机已经装了 %s（%s），但它有独立的环境和权重，本应用不接管 —— 直接用它自己的命令行",
-			command, path,
-		)
+	if !extrasReady {
+		return ""
+	}
+	if strings.TrimSpace(lookup(command)) != "" {
+		return ""
 	}
 	return fmt.Sprintf(
-		"外部工具：本机没装 %s 命令（按它官网的说明装好后刷新一下即可），本应用只登记入口、不代管依赖与权重",
+		"依赖装好了，但 venv 里没有 %s 命令：点模型卡上的「重新安装命令」，或去「设置 → Python 环境」点「重新检测」",
 		command,
 	)
 }

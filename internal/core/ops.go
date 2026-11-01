@@ -124,7 +124,11 @@ func (c *Core) StartPrepare(modelID string, force bool) error {
 		return err
 	}
 	// 先落状态再开 goroutine：界面下一帧就能显示「准备中」。
-	c.setState(modelID, StatePreparing, "正在安装依赖…")
+	if spec.Engine == "external" {
+		c.setState(modelID, StatePreparing, "正在安装命令…")
+	} else {
+		c.setState(modelID, StatePreparing, "正在安装依赖…")
+	}
 	go func() {
 		defer c.op.end()
 		if err := c.Prepare(modelID, force); err != nil {

@@ -9,53 +9,49 @@ import (
 	"github.com/bluefrog/ocr-manager/internal/models"
 )
 
-// TestReasonsExternalToolWithoutCommand 外部工具没装 CLI 时要说清「没装什么命令」，
-// 而不是一句「本应用不代管运行环境」（用户看的就是这句，等于没说）。
-func TestReasonsExternalToolWithoutCommand(t *testing.T) {
+// TestReasonsExternalToolWithoutExtras 外部工具（MinerU / Surya）依赖没装时**不该**再算「本机不可用」：
+// 那是正常的待安装状态，卡片上该出现「安装命令」。
+func TestReasonsExternalToolWithoutExtras(t *testing.T) {
 	c := &Core{Memory: hardware.Memory{TotalMB: 32 * 1024}}
 	spec := models.ModelSpec{
 		ID:     "surya",
 		Name:   "Surya（多语言 OCR）",
 		Engine: "external",
+		Extras: []string{"surya"},
 		Options: map[string]any{
-			// 故意用一个肯定装不上的名字
-			"command": "ocr-manager-不存在的命令 <image>",
+			"command": "surya_ocr <image>",
 		},
 	}
 
-	reasons := c.Reasons(spec)
-	if len(reasons) != 1 {
-		t.Fatalf("外部工具应该给出一条原因，拿到 %d 条：%+v", len(reasons), reasons)
-	}
-	if reasons[0].Kind != ReasonExternal {
-		t.Errorf("原因分类应该是 %s，拿到 %s", ReasonExternal, reasons[0].Kind)
-	}
-	for _, want := range []string{"没装", "ocr-manager-不存在的命令", "不代管"} {
-		if !strings.Contains(reasons[0].Message, want) {
-			t.Errorf("原因里应该有「%s」：%s", want, reasons[0].Message)
-		}
+	// 没有 Env 相当于依赖肯定没装
+	if reasons := c.Reasons(spec); len(reasons) != 0 {
+		t.Fatalf("依赖没装只是待安装，不该有原因，拿到 %+v", reasons)
 	}
 }
 
-// TestReasonsExternalToolInstalled 装了 CLI 的外部工具不该再说「没装」，
-// 而是「装了但不归本应用管」。
-func TestReasonsExternalToolInstalled(t *testing.T) {
-	c := &Core{Memory: hardware.Memory{TotalMB: 32 * 1024}}
+// TestExternalMissingReason 依赖装好了、命令却没出来，才是真问题，要说清装什么。
+func TestExternalMissingReason(t *testing.T) {
 	spec := models.ModelSpec{
-		ID:      "surya",
+		ID:      "mineru",
 		Engine:  "external",
-		Options: map[string]any{"command": "sh -c true"},
+		Options: map[string]any{"command": "mineru -p <pdf> -o <out>"},
 	}
 
-	reasons := c.Reasons(spec)
-	if len(reasons) != 1 {
-		t.Fatalf("应该给出一条原因，拿到 %d 条", len(reasons))
+	missing := externalMissingReason(spec, true, func(string) string { return "" })
+	for _, want := range []string{"mineru", "重新安装命令"} {
+		if !strings.Contains(missing, want) {
+			t.Errorf("原因里应该有「%s」：%s", want, missing)
+		}
 	}
-	if strings.Contains(reasons[0].Message, "没装") {
-		t.Errorf("命令在 PATH 里，不该说没装：%s", reasons[0].Message)
+
+	if got := externalMissingReason(spec, true, func(string) string { return "/venv/bin/mineru" }); got != "" {
+		t.Errorf("命令找到了就不该有原因，拿到：%s", got)
 	}
-	if !strings.Contains(reasons[0].Message, "已经装了") {
-		t.Errorf("应该说明命令已经装了：%s", reasons[0].Message)
+	if got := externalMissingReason(spec, false, func(string) string { return "" }); got != "" {
+		t.Errorf("依赖没装时不该有原因（等用户点安装），拿到：%s", got)
+	}
+	if got := externalMissingReason(models.ModelSpec{ID: "x", Engine: "external"}, true, func(string) string { return "" }); got == "" {
+		t.Error("没写 options.command 要说一句")
 	}
 }
 

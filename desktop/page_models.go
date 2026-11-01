@@ -40,7 +40,7 @@ func (u *ui) modelsPage() core.Node {
 			enabled++
 		}
 	}
-	subtitle := fmt.Sprintf("共 %d 个 · 已启用 %d 个 · 同一时间只加载一个引擎", len(u.data().models), enabled)
+	subtitle := fmt.Sprintf("共 %d 个 · 已启用 %d 个 · 可以同时加载多个引擎", len(u.data().models), enabled)
 
 	return u.pageRoot("模型", subtitle, actions,
 		row(6,
@@ -240,7 +240,12 @@ func (u *ui) modelActions(m ModelInfo) []core.Node {
 	case m.NeedsDownload():
 		out = append(out, u.button(fixed("下载权重"), buttonPrimary, busy, func() { u.prepare(id, false) }))
 	case !canUse:
-		out = append(out, u.button(fixed("安装依赖"), buttonPrimary, busy, func() { u.prepare(id, false) }))
+		// 外部工具（MinerU / Surya）装的是命令行，不是 python 依赖，文案跟着改
+		label := "安装依赖"
+		if m.Engine == "external" {
+			label = "安装命令"
+		}
+		out = append(out, u.button(fixed(label), buttonPrimary, busy, func() { u.prepare(id, false) }))
 	default:
 		out = append(out, u.button(fixed("启用"), buttonPrimary, busy, func() { u.activate(id) }))
 	}

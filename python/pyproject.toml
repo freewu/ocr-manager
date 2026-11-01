@@ -44,6 +44,18 @@ vlm = [
     "huggingface_hub>=0.24",
     "pypdfium2>=4.28",
 ]
+# Surya：多语言检测 / 识别命令行（surya_ocr），权重首次运行时自己下到 HF 缓存
+surya = [
+    "pillow>=10.0",
+    "pypdfium2>=4.28",
+    "surya-ocr>=0.10",
+]
+# MinerU：PDF / 图片解析流水线（mineru），依赖较重（torch），需要 Python 3.10+
+mineru = [
+    "pillow>=10.0",
+    "pypdfium2>=4.28",
+    "mineru>=2.0",
+]
 # 全量（开发 / 打包机用）
 all = [
     "pillow>=10.0",
@@ -53,6 +65,8 @@ all = [
     "rapidocr>=2.0",
     "pypdfium2>=4.28",
     "huggingface_hub>=0.24",
+    "surya-ocr>=0.10",
+    "mineru>=2.0",
 ]
 
 [tool.setuptools.packages.find]

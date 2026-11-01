@@ -15,8 +15,8 @@ Python venv 管理、产物历史。
 
 ## 特性
 
-- **多引擎**：RapidOCR（CPU 基线）、Tesseract 5、PaddleOCR PP-OCRv5、dots.ocr / DeepSeek-OCR（VLM，需 GPU）、MinerU / Surya（外部登记）
-- **「本机不可用」要说清为什么**：模型卡上逐条列具体原因——没 NVIDIA 驱动 / CUDA、显存不够（需要 ≥ 16 GB，本机只有 6 GB）、内存不够、外部工具没装命令（`surya_ocr` / `mineru`）
+- **多引擎**：RapidOCR（CPU 基线）、Tesseract 5、PaddleOCR PP-OCRv5、dots.ocr / DeepSeek-OCR（VLM，需 GPU）、MinerU / Surya（装命令行，识别时调它们的 CLI）
+- **「本机不可用」要说清为什么**：模型卡上逐条列具体原因——没 NVIDIA 驱动 / CUDA、显存不够（需要 ≥ 16 GB，本机只有 6 GB）、内存不够；缺什么就指向下一步（装依赖 / 装命令 / 换基础解释器）
 - **三种权重策略**：`hub`（worker 用 `snapshot_download` 拉）、`auto`（引擎自己管）、`none`（mock / 系统 tesseract）
 - **不许踩坑的报错**：每个失败都会告诉下一步该干什么，例如「先跑 `just env-model rapidocr`」
 - **批量输入**：一次选多张图片 + 多个 PDF，左边文件列表 / 右边预览可拖动分栏，预览能收起
@@ -24,7 +24,7 @@ Python venv 管理、产物历史。
 - **导出 Excel**：`分块`表（文件 / 页 / 序号 / 类型 / 置信度 / 坐标 / 文本）+ `全文`表（纯文本 + Markdown）
 - **产物可追溯**：每次识别落一个目录（`meta.json` + 输入副本 + `result.json/.md/.txt`），多文件按 `01-原始名` 排序落盘
 - **venv 隔离**：依赖装在数据目录下，按模型 extras 增量安装；基础解释器变了会自动重建
-- **同一时刻只加载一个引擎**：本地单卡场景，切换模型时自动卸载上一个
+- **多个模型可以同时加载**：每个模型一个 worker 进程，切回已加载的模型不用重新读权重（显存 / 内存不够时对应的那个模型会自己报错）
 
 ## 快速开始
 

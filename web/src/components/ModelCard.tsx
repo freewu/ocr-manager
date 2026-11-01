@@ -160,7 +160,7 @@ export default function ModelCard({ model, busy, progress, onPrepare, onActivate
             disabled={locked || !usable}
             onClick={() => onPrepare(model.id, false)}
           >
-            {working ? "准备中…" : "安装依赖"}
+            {working ? "准备中…" : model.engine === "external" ? "安装命令" : "安装依赖"}
           </button>
         )}
         {active ? (

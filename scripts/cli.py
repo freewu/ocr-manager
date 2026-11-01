@@ -71,7 +71,10 @@ def cmd_list(args: argparse.Namespace) -> None:
         st = m["status"]
         weights = st["weights"]
         marks = []
-        if st["weights_ready"]:
+        if m["engine"] == "external":
+            # MinerU / Surya 装的是命令行，不是权重
+            marks.append("命令✓" if st.get("extras_ready") else "待装命令")
+        elif st["weights_ready"]:
             marks.append("权重✓")
         elif st["needs_download"]:
             marks.append("需下载")

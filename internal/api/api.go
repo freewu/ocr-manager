@@ -270,11 +270,6 @@ func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	force := r.URL.Query().Get("force") == "1"
-	if spec.Engine == "external" {
-		// 外部工具不用下载：直接把「缺什么」告诉用户（没装命令 / 装了但不归本应用管）
-		writeError(w, http.StatusBadRequest, s.Core.ReasonText(spec))
-		return
-	}
 	if summary := s.Core.ReasonText(spec); summary != "" {
 		writeError(w, http.StatusConflict, "无法准备「"+spec.Name+"」："+summary)
 		return

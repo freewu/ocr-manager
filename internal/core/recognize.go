@@ -75,6 +75,9 @@ func (c *Core) StartRecognize(req RecognizeRequest) (*Job, error) {
 		return nil, fmt.Errorf("没有要识别的文件")
 	}
 	if !c.extrasReady(spec) && spec.Engine != "mock" {
+		if spec.Engine == "external" {
+			return nil, fmt.Errorf("「%s」的命令行还没装：先点模型卡上的「安装命令」", spec.Name)
+		}
 		return nil, fmt.Errorf("「%s」的依赖没装好：先点模型卡上的「安装依赖」", spec.Name)
 	}
 	if err := c.weightsGate(spec); err != nil {

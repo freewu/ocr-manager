@@ -192,7 +192,12 @@ func (c *Core) statusOf(spec models.ModelSpec, refresh bool) ModelStatus {
 		status.Message = "还没下载权重"
 	case !status.ExtOK:
 		status.State = StateIdle
-		status.Message = "还没安装依赖"
+		if spec.Engine == "external" {
+			// MinerU / Surya 这类独立命令行：装的是命令，不是“缺依赖”
+			status.Message = "还没安装命令"
+		} else {
+			status.Message = "还没安装依赖"
+		}
 	default:
 		status.State = StateIdle
 		status.Message = "可以启用"
@@ -364,7 +369,9 @@ func (c *Core) Prepare(modelID string, force bool) error {
 	return nil
 }
 
-// Activate 加载模型（同一时间只保留一个激活模型，其余 worker 会被关掉）。
+// Activate 加载模型（可以同时加载多个；每个模型一个 worker 进程）。
+//
+// 这里只把 `active` 记成「最近启用」的模型（界面默认选它），不再卸载其它模型。
 func (c *Core) Activate(modelID string) error {
 	spec, ok := c.Spec(modelID)
 	if !ok {
@@ -377,6 +384,9 @@ func (c *Core) Activate(modelID string) error {
 		return err
 	}
 	if !c.extrasReady(spec) {
+		if spec.Engine == "external" {
+			return fmt.Errorf("「%s」的命令行还没装：点模型卡上的「安装命令」（会装进应用自己的 python 环境）", spec.Name)
+		}
 		return fmt.Errorf("「%s」的 python 依赖还没装：点模型卡上的「安装依赖」，或在「设置 → Python 环境」里装", spec.Name)
 	}
 
@@ -464,20 +474,9 @@ func (c *Core) acquireWorker(spec models.ModelSpec, jobID string) (*worker.Worke
 		c.dropWorker(spec.ID, w)
 	}
 
-	// 只保留一个激活模型：把别的 worker 关掉，省显存
-	c.mu.Lock()
-	others := map[string]*worker.Worker{}
-	for id, other := range c.workers {
-		others[id] = other
-		delete(c.workers, id)
-	}
-	c.active = ""
-	c.mu.Unlock()
-	for id, other := range others {
-		c.Bus.Info(id, "切换到 "+spec.Name+"，卸载上一个模型")
-		other.Shutdown(3 * time.Second)
-	}
-
+	// 多个模型可以同时加载：每个模型有自己的 worker 进程，
+	// 切过去用不会把上一个卸掉（本地多任务不必重复加载）。
+	// 显存 / 内存不够时会让用户看到加载失败，而不是默默把别的模型杀了。
 	spawned, err := c.spawnWorker(spec)
 	if err != nil {
 		return nil, err

@@ -287,7 +287,11 @@ export default function App() {
     [guard],
   );
 
-  const activeModel = useMemo(() => models.find((m) => m.status?.state === "ready" || m.status?.state === "running"), [models]);
+  // 可以同时加载多个模型：这里列出全部已加载的，顶栏文案跟着变长
+  const loadedModels = useMemo(
+    () => models.filter((m) => m.status?.state === "ready" || m.status?.state === "running"),
+    [models],
+  );
   const envReady = env?.state === "ready";
   // 顶栏与横幅上的「后台在干什么」：后端自报的 op 优先，刚点下去的那一下用本地提示
   const opLabel = info?.op?.label ?? opNote;
@@ -324,7 +328,9 @@ export default function App() {
             设置
           </button>
           <span className="tiny muted" style={{ padding: "4px 2px" }}>
-            {activeModel ? `当前：${activeModel.name}` : "还没启用模型"}
+            {loadedModels.length
+              ? `已加载 ${loadedModels.length} 个：${loadedModels.map((m) => m.name).join("、")}`
+              : "还没启用模型"}
           </span>
         </div>
       </aside>
