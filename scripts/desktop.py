@@ -52,6 +52,9 @@ RELEASE_README = """OCR Manager
 MinerU / Surya 这类引擎不是 pip 包，模型卡上点「安装命令」即可，
 依赖同样装在应用自己的环境里。
 
+关窗口（右上角 X）不是退出：程序收进系统托盘，识别任务接着跑，
+单击托盘图标就能把窗口拿回来；真要退出，右键托盘图标 → 「退出」。
+
 数据（日志 / 模型 / 结果 / venv）都在应用的数据目录：
 Windows 默认 %AppData%\\ocr-manager，macOS 是
 ~/Library/Application Support/ocr-manager，Linux 是 ~/.local/share/ocr-manager。

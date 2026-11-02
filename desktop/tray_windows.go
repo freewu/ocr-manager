@@ -5,7 +5,9 @@ package main
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -15,6 +17,10 @@ import (
 // 不引入额外依赖，全部走 syscall 里的 DLL 调用。
 //
 // 菜单：打开主窗口 / 打开数据目录 / 退出。
+//
+// 关窗口（X、Alt+F4、任务栏关闭）不退出：主窗口只是被藏起来，后端和 python
+// worker 继续跑，识别队列不断。真要退出走托盘菜单「退出」，那里会把窗口真正
+// 关掉，main 里的 defer 才有机会收后端。
 
 const (
 	trayCallbackMsg = 0x8001 // WM_APP+1
@@ -38,6 +44,12 @@ const (
 	tpmReturnCmd   = 0x0100
 
 	swRestore = 9
+	swShow    = 5
+	swHide    = 0
+
+	nimModify = 1
+	nifInfo   = 0x10 // 想让托盘图标弹气泡，得带上这个 flag 再 NIM_MODIFY
+	niifInfo  = 0x1
 
 	idShowWindow = 1
 	idOpenHome   = 2
@@ -71,6 +83,9 @@ var (
 	procGetWindowThreadPID  = user32.NewProc("GetWindowThreadProcessId")
 	procShowWindow          = user32.NewProc("ShowWindow")
 	procLoadIconW           = user32.NewProc("LoadIconW")
+	procIsIconic            = user32.NewProc("IsIconic")
+	procIsWindow            = user32.NewProc("IsWindow")
+	procCallWindowProcW     = user32.NewProc("CallWindowProcW")
 	procCreateIconFromResEx = user32.NewProc("CreateIconFromResourceEx")
 	procGetModuleHandleW    = kernel32.NewProc("GetModuleHandleW")
 	procShellNotifyIconW    = shell32.NewProc("Shell_NotifyIconW")
@@ -124,6 +139,18 @@ type notifyIconData struct {
 }
 
 var (
+	// 主窗口句柄：收到托盘里以后窗口不可见，EnumWindows 那个按「可见」
+	// 挑窗口的办法就找不回来了，所以换窗口过程时就把它记住。
+	mainHwnd atomic.Uintptr
+
+	// quitting 为真时 WM_CLOSE 照常往下传（真关），否则只把窗口藏起来。
+	quitting atomic.Bool
+
+	// oldWndProc 是换窗口过程前的原过程（SetWindowLongPtr 那条退路要转回去）。
+	oldWndProc atomic.Uintptr
+
+	// firstHide 只弹一次「收到托盘里了」的气泡，别每次关都骚扰。
+	firstHide   sync.Once
 	trayOnce    sync.Once
 	trayHandle  uintptr
 	trayMu      sync.Mutex
@@ -160,6 +187,7 @@ func startTray() {
 		trayHandle = hwnd
 		addTrayIcon(hwnd)
 		go messageLoop()
+		installCloseToTray()
 	})
 }
 
@@ -212,7 +240,7 @@ func addTrayIcon(hwnd uintptr) {
 		Icon:            trayIcon(),
 	}
 	nid.Size = uint32(unsafe.Sizeof(nid))
-	copy(nid.Tip[:], syscall.StringToUTF16("OCR Manager"))
+	copy(nid.Tip[:], syscall.StringToUTF16("OCR Manager（单击打开窗口 / 右键退出）"))
 	procShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid)))
 
 	trayMu.Lock()
@@ -292,14 +320,98 @@ func showTrayMenu(hwnd uintptr) {
 	}
 }
 
-// showMainWindow 把主窗口从最小化恢复并拿到前台。
+// closeToTrayProc 是换到 NSGo 主窗口上的窗口过程。
+//
+// 只拦 WM_CLOSE：把窗口藏起来、返回 0，NSGo 就收不到这条消息，也就不会
+// DestroyWindow → PostQuitMessage → 进程退出。其余消息原样转给 NSGo 的过程，
+// 绘制 / 输入 / 选区分毫不变。
+var closeToTrayProc = syscall.NewCallback(func(hwnd, msg, wparam, lparam uintptr) uintptr {
+	if msg == wmClose && !quitting.Load() {
+		hideToTray(hwnd)
+		return 0
+	}
+	r, _, _ := procCallWindowProcW.Call(oldWndProc.Load(), hwnd, msg, wparam, lparam)
+	return r
+})
+
+// installCloseToTray 等 NSGo 把窗口建出来，再把它的窗口过程换成 closeToTrayProc。
+//
+// 为什么不在 startTray 里直接换：nsgo.Run 是阻塞的，调用它的时侯窗口还不存在。
+// 这里每秒瞅 10 次，找到就换，换完退出协程。
+//
+// 用 SetWindowLongPtr 而不是 comctl32 的 SetWindowSubclass：后者要 exe 带
+// comctl32 v6 清单才生效，我们没带（实测 5.82 直接返回失败），换过程这条路
+// 一条就够，32 位走 SetWindowLongW（见 wndproc_windows_32.go）。
+func installCloseToTray() {
+	go func() {
+		for i := 0; i < 600; i++ { // 最多等 60 秒，等不到就算了（点 X 照旧退出）
+			if hwnd := findMainWindow(); hwnd != 0 {
+				// 记下句柄：藏起来以后窗口不可见，EnumWindows 就找不回来了。
+				mainHwnd.Store(hwnd)
+				if old := setWndProcLong(hwnd, closeToTrayProc); old != 0 {
+					oldWndProc.Store(old)
+				}
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+}
+
+// hideToTray 把主窗口藏起来，并告诉用户它在托盘里。
+func hideToTray(hwnd uintptr) {
+	procShowWindow.Call(hwnd, swHide)
+	firstHide.Do(func() {
+		trayBalloon("还在跑", "窗口收到托盘里了，识别任务不受影响。\n单击托盘图标打开窗口，右键→退出。")
+	})
+}
+
+// trayBalloon 弹一个气泡/通知（Win10+ 会显示成普通通知）。
+func trayBalloon(title, text string) {
+	trayMu.Lock()
+	nid := trayNID
+	trayMu.Unlock()
+	if nid.Wnd == 0 {
+		return
+	}
+	nid.Flags |= nifInfo
+	nid.InfoFlags = niifInfo
+	nid.Info = [256]uint16{}
+	nid.InfoTitle = [64]uint16{}
+	copy(nid.Info[:], syscall.StringToUTF16(text))
+	copy(nid.InfoTitle[:], syscall.StringToUTF16(title))
+	procShellNotifyIconW.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+}
+
+// showMainWindow 把主窗口从托盘里拿回来（藏起来过就用记住的句柄）。
 func showMainWindow() {
-	hwnd := findMainWindow()
+	hwnd := rememberedMainWindow()
 	if hwnd == 0 {
 		return
 	}
-	procShowWindow.Call(hwnd, swRestore)
+	// 藏起来之前是最小化状态就用 SW_RESTORE，否则 SW_SHOW
+	// （SW_RESTORE 会把最大化窗口退回普通尺寸，不能无脑用）。
+	if v, _, _ := procIsIconic.Call(hwnd); v != 0 {
+		procShowWindow.Call(hwnd, swRestore)
+	} else {
+		procShowWindow.Call(hwnd, swShow)
+	}
 	procSetForegroundWindow.Call(hwnd)
+}
+
+// rememberedMainWindow 返回主窗口句柄：先用记住的，句柄失效了再枚举。
+func rememberedMainWindow() uintptr {
+	if hwnd := mainHwnd.Load(); hwnd != 0 {
+		if v, _, _ := procIsWindow.Call(hwnd); v != 0 {
+			return hwnd
+		}
+		mainHwnd.Store(0)
+	}
+	if hwnd := findMainWindow(); hwnd != 0 {
+		mainHwnd.Store(hwnd)
+		return hwnd
+	}
+	return 0
 }
 
 // enumFound 是 EnumWindows 回调找到的主窗口。
@@ -326,14 +438,24 @@ func findMainWindow() uintptr {
 	return enumFound
 }
 
-// quitFromTray 先请主窗口关闭（走正常退出流程，后端和 worker 会被收掉），
-// 窗口不在就直接收后端。
+// quitFromTray 真退出：先举起 quitting 旗（否则 WM_CLOSE 又会被换成「藏起来」），
+// 再请主窗口关闭——走 NSGo 的正常退出流程，main 里的 defer 会把后端和
+// python worker 一起收掉。窗口不在就直接收后端。
 func quitFromTray() {
-	if hwnd := findMainWindow(); hwnd != 0 {
-		procPostMessageW.Call(hwnd, wmClose, 0, 0)
-		return
+	quitting.Store(true)
+	hwnd := rememberedMainWindow()
+	if hwnd == 0 {
+		stopServer()
+		stopTray()
+		os.Exit(0)
 	}
-	stopServer()
-	stopTray()
-	os.Exit(0)
+	procPostMessageW.Call(hwnd, wmClose, 0, 0)
+	// 兜底：两秒后窗口还在（消息没走到 NSGo、或转发链断了），直接收摊。
+	// 不这么做的话菜单里的「退出」可能变成「又藏起来」，用户会以为没反应。
+	time.Sleep(2 * time.Second)
+	if v, _, _ := procIsWindow.Call(hwnd); v != 0 {
+		stopServer()
+		stopTray()
+		os.Exit(0)
+	}
 }

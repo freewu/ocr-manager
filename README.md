@@ -72,7 +72,9 @@ exe 是**单文件**：后端 `ocr-server` 已经用 `go:embed` 编进桌面壳
 其余（模型权重、历史、日志）都落在应用的数据目录。
 
 桌面壳带 Windows 系统托盘：右键托盘图标可以「打开主窗口 / 打开数据目录 / 退出」，
-单机或双击图标也能把窗口调出来。窗口 / 任务栏 / 托盘的图标都来自仓库根的
+单机或双击图标也能把窗口调出来。**关窗口（X、Alt+F4）不退出**：主窗口只是收进托盘，
+后端和 python worker 继续跑（长任务不会被打断），想真退出走托盘菜单「退出」。
+窗口 / 任务栏 / 托盘的图标都来自仓库根的
 `logo.png`：`just icon` 生成 `desktop/assets/Icon.png`，打包时 NSGo 会把它编成
 exe 的 Win32 图标资源（不打包、直接 `go run` 的话 exe 没有这段资源，系统只能
 给你默认图标——用 `just desktop` 跑就会自动走 `nsgo dev` 带上图标）。
@@ -112,7 +114,7 @@ scripts/            just 配方背后的 python（build/dev/desktop/cli/doctor/m
 | `HF_ENDPOINT` | HuggingFace 镜像 |
 | `OCR_HF_OFFLINE` / `OCR_NO_PREWARM` | 离线 / 不预探测仓库 |
 | `OCR_NO_SPAWN` | 桌面壳不自动拉起后端 |
-| `OCR_NO_TRAY` | 桌面壳不开系统托盘 |
+| `OCR_NO_TRAY` | 桌面壳不开系统托盘（此时关窗口就是退出） |
 
 ## 开发命令
 
