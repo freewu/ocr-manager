@@ -75,8 +75,8 @@ web-build:
 desktop:
     {{PY}} scripts/desktop.py run
 
-# 打包桌面壳到 bin/（exe 里带应用图标）
-desktop-build: build
+# 打包桌面壳（前端 / 后端已是最新就跳过重编）；产物在 bin/ 与 dist/
+desktop-build:
     {{PY}} scripts/desktop.py build
 
 # ---------------------------------------------------------------- 模型
@@ -123,11 +123,11 @@ icon:
 
 # ---------------------------------------------------------------- 构建 / 检查
 
-# 构建前端 + 后端
+# 构建前端 + 后端 + 桌面壳，打包独立可执行程序（dist/ocr-manager-<版本>-<平台>.zip）
 build:
     {{PY}} scripts/build.py
 
-# 只编后端，不碰前端
+# 只编后端，不碰前端/桌面壳
 build-go:
     {{PY}} scripts/build.py --skip-web
 

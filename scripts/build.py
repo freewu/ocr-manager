@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""构建后端 + 前端（产物统一落在 bin/ 与 web/dist/）。
+"""构建后端 + 前端 + 桌面壳（产物落在 bin/ 与 dist/）。
 
-    python scripts/build.py            # 前端 + 后端
-    python scripts/build.py --skip-web # 只编 Go
+    python scripts/build.py              # 前端 + 后端 + 独立可执行程序（含 zip）
+    python scripts/build.py --skip-web   # 只编后端（bin/ocr-server）
+    python scripts/build.py --skip-desktop # 前端 + 后端，不打发布包
     python scripts/build.py fmt|lint|test
 
 WSL 里默认用 Linux 版 go（前端开发够用）；要出 Windows 原生程序时设置
@@ -10,6 +11,8 @@ OCR_GO 指向 Windows 的 go.exe，或直接在 Windows 侧跑同一条命令。
 """
 
 from __future__ import annotations
+
+import utf8_console  # noqa: F401  统一 UTF-8 输出，Windows 控制台打 ✓ 不会崩
 
 import os
 import shutil
@@ -52,6 +55,8 @@ def build_go() -> int:
 def main(argv: list[str]) -> int:
     task = argv[0] if argv else "build"
     skip_web = "--skip-web" in argv
+    # 只编后端时不打包（没前端产物、也没想发布）
+    skip_desktop = "--skip-desktop" in argv or skip_web
 
     if task == "fmt":
         return run([GO, "fmt", "./..."])
@@ -73,7 +78,15 @@ def main(argv: list[str]) -> int:
     if build_go() != 0:
         print("✗ 后端编译失败", file=sys.stderr)
         return 1
-    print(f"✓ 构建完成：{BIN}")
+    if skip_desktop:
+        print(f"✓ 构建完成：{BIN}")
+        return 0
+
+    # 桌面壳把后端编进自己肚子里，发布物就一个 exe；具体步骤在 scripts/desktop.py
+    desktop = ROOT / "scripts" / "desktop.py"
+    if run([sys.executable, str(desktop), "build"]) != 0:
+        print("✗ 桌面壳打包失败", file=sys.stderr)
+        return 1
     return 0
 
 

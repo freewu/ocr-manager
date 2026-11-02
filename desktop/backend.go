@@ -105,6 +105,10 @@ func findServer() (string, bool) {
 			return c, true
 		}
 	}
+	// 旁边确实没有，就看这个 exe 自己带没带（发布包就是单文件）
+	if p, ok := embeddedServer(); ok {
+		return p, true
+	}
 	if p, err := exec.LookPath(name); err == nil {
 		return p, true
 	}

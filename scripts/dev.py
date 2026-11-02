@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import utf8_console  # noqa: F401  统一 UTF-8 输出，Windows 控制台打 ✓ 不会崩
+
 import argparse
 import os
 import shutil

@@ -47,8 +47,23 @@ just ocr page.png         # 命令行识别
 
 ```bash
 just desktop         # 编后端 + 前端，然后开窗口
-just desktop-build   # 打包到 bin/ocr-manager（exe 里带应用图标）
+just build           # 打包独立可执行程序（桌面壳 + 后端合成一个 exe）
+just desktop-build   # 同 just build（前端 / 后端已是最新就跳过重编）
 ```
+
+`just build` 产物在 `dist/`：
+
+```
+dist/ocr-manager-0.1.0-windows_x64/ocr-manager.exe   ← 双击就能用
+使用说明.txt
+dist/ocr-manager-0.1.0-windows_x64.zip               ← 发给别人的就是这个
+```
+
+exe 是**单文件**：后端 `ocr-server` 已经用 `go:embed` 编进桌面壳
+（`desktop/embedded/`），运行时解包到数据目录的 `runtime/` 再拉起，所以不用把
+`ocr-server.exe` 跟它摆在一起。机器上唯一的前置条件是 Python 3.10+（第一次启动在
+「设置 → Python 环境」点「安装依赖」，依赖装在应用自己的 venv 里），
+其余（模型权重、历史、日志）都落在应用的数据目录。
 
 桌面壳带 Windows 系统托盘：右键托盘图标可以「打开主窗口 / 打开数据目录 / 退出」，
 单机或双击图标也能把窗口调出来。窗口 / 任务栏 / 托盘的图标都来自仓库根的
@@ -99,7 +114,8 @@ scripts/            just 配方背后的 python（build/dev/desktop/cli/doctor/m
 just check        # fmt + lint + test + py-test + web-check
 just py-test      # python worker 测试
 just web-check    # 前端类型检查
-just build        # 前端 + 后端到 bin/
+just build        # 前端 + 后端 + 桌面壳，打包独立可执行程序到 dist/
+just build-go     # 只编后端到 bin/ocr-server
 just icon         # 从 logo.png 生成桌面图标与 favicon
 ```
 

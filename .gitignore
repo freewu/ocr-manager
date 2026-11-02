@@ -55,3 +55,7 @@ desktop/.nsgo/
 *.egg-info/
 desktop/desktop
 desktop/desktop.exe
+
+# 打包时塞进桌面壳的内置后端（见 desktop/embedded/README.md）
+desktop/embedded/ocr-server
+desktop/embedded/target.txt

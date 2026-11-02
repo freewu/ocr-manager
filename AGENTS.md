@@ -35,7 +35,8 @@ config/models.toml 模型清单（同时嵌进二进制做默认值）
 just check          # fmt + lint + test + py-test + web-check（提交前必跑）
 just dev            # 后端 8899 + 前端 5273
 just desktop        # 编译并开桌面窗口（nsgo dev，带图标、自动重建）
-just desktop-build  # 打包到 bin/ 与 dist/（exe 含 Win32 图标资源 + ocr-server）
+just build          # 打包独立可执行程序：dist/ocr-manager-<版本>-<平台>/ + .zip（单文件 exe）
+just build-go       # 只编后端到 bin/ocr-server
 just icon           # 从 logo.png 生成 desktop/assets/Icon.png 与 web/public/*
 just cli info       # 跟运行中的服务对话（模型 / 环境 / 日志）
 ```
@@ -53,7 +54,8 @@ just cli info       # 跟运行中的服务对话（模型 / 环境 / 日志）
 - **输入文件按 `01-原始名` 落盘**：多文件一次识别时副本名必须带序号（`history.SaveInput`），否则同名文件互相覆盖；`Page.Source` 记副本名，前端靠它按文件分 tab（`displaySource()` 去掉序号前缀再显示）。
 - **文件对话框自己实现**：`desktop/filedialog_windows.go` 用 `comdlg32` 的 `GetOpenFileNameW`/`GetSaveFileNameW`（多选返回「目录\0文件名\0…」），Linux 走 zenity/kdialog、macOS 走 osascript；都没有就提示手动粘贴路径。别让它跑在 UI 线程上等。
 - **Excel 导出不引第三方库**：`internal/xlsx` 用 `archive/zip` 现拼 OOXML（inlineStr + 数值单元格 + 样式表），`history.ExportXLSX` 出「分块」「全文」两张表，接口是 `GET /api/history/{id}/export.xlsx`。
-- **生成物不入库**：`bin/`、`dist/`、`web/node_modules`、`web/dist`、`__pycache__`、`*.syso`、`*.tsbuildinfo`。
+- **生成物不入库**：`bin/`、`dist/`、`web/node_modules`、`web/dist`、`__pycache__`、`*.syso`、`*.tsbuildinfo`、`desktop/embedded/ocr-server*`、`desktop/embedded/target.txt`。
+- **发布物是一个 exe**：`scripts/desktop.py build` 先把 `bin/ocr-server` 复制到 `desktop/embedded/` 并写 `target.txt`（`goos/goarch`），桌面壳用 `//go:embed embedded` 把它编进去；运行时旁边找不到 `ocr-server` 才解包内置那份到 `$OCR_HOME/runtime/ocr-server-<哈希>.exe`（内容哈希命名，避开 Windows 覆盖运行中 exe）。开发时 `bin/ocr-server` 优先，所以改了后端立刻生效；`target.txt` 对不上就忽略内置那份，交叉编不会拿错平台的二进制。
 
 ## 检查清单
 
@@ -67,5 +69,5 @@ just check        # 或分开跑：go vet/test（根 + desktop）、python3 -m u
 
 ```bash
 cd desktop && GOOS=windows go build ./...   # 托盘代码只在 Windows 编译，必须交叉编译验过
-python3 scripts/desktop.py build            # 产物里有 .rsrc 图标资源、exe 同级有 ocr-server
+python3 scripts/desktop.py build            # dist/ocr-manager-<版本>-<平台>/ 里是单个 exe（图标资源已链进去）
 ```
