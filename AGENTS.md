@@ -56,6 +56,9 @@ just cli info       # 跟运行中的服务对话（模型 / 环境 / 日志）
 - **Excel 导出不引第三方库**：`internal/xlsx` 用 `archive/zip` 现拼 OOXML（inlineStr + 数值单元格 + 样式表），`history.ExportXLSX` 出「分块」「全文」两张表，接口是 `GET /api/history/{id}/export.xlsx`。
 - **生成物不入库**：`bin/`、`dist/`、`web/node_modules`、`web/dist`、`__pycache__`、`*.syso`、`*.tsbuildinfo`、`desktop/embedded/ocr-server*`、`desktop/embedded/target.txt`。
 - **发布物是一个 exe**：`scripts/desktop.py build` 先把 `bin/ocr-server` 复制到 `desktop/embedded/` 并写 `target.txt`（`goos/goarch`），桌面壳用 `//go:embed embedded` 把它编进去；运行时旁边找不到 `ocr-server` 才解包内置那份到 `$OCR_HOME/runtime/ocr-server-<哈希>.exe`（内容哈希命名，避开 Windows 覆盖运行中 exe）。开发时 `bin/ocr-server` 优先，所以改了后端立刻生效；`target.txt` 对不上就忽略内置那份，交叉编不会拿错平台的二进制。
+- **发布构建一律 `-trimpath`**：`assets.go` 用 `runtime.Caller` 找「开发态的 `python/` 目录」，不裁路径的话打包出来的二进制里写的是构建机上的仓库路径——在本机跑发布包就一直用仓库源码，拷到别人机器上才走内置解包，两套行为不一致，线上问题永远复现不出来。裁掉之后 `Caller` 给的是模块路径（非绝对），`devPythonDirs` / `ResolveWebDir` 会跳过它。
+- **`//go:embed` 不能写成目录**：`//go:embed python` 会跳过 `_` 开头的文件，`__init__.py` / `__main__.py` 全被漏掉，打包出来的应用一启用模型就 `ImportError: cannot import name '__version__' from 'ocr_worker'`（开发态读仓库目录，看不出来）。现在写成显式 glob（`python/ocr_worker/*.py`、`python/ocr_worker/engines/*.py`、`python/tests/*.py`、`python/pyproject.toml`），`assets_test.go` 会拿仓库清单比对，改了 python 目录结构要同步改 embed 行。
+- **动 venv 前先停 worker**：装依赖 / 重建 venv 会替换 venv 里的包（pillow、opencv、onnxruntime…），跑着的 worker 已经把它们加载进内存，替换后再用就报些看不懂的错（踩过：识别直接失败，错误信息是「打不开图片 xxx：」后面什么都没有）。`Core.stopWorkers()` 在 `StartEnvInstall` / `StartEnvRecreate` 开头调，装完用户点识别会自动重新拉起。
 
 ## 检查清单
 

@@ -127,7 +127,10 @@ def load_bitmap(path: str, index: int = 0, max_side: int = 0, need_pixels: bool 
             image = ImageOps.exif_transpose(opened)
             image.load()
     except Exception as exc:  # noqa: BLE001 - Pillow 的异常类型太多
-        raise EngineError(f"打不开图片 {path}：{exc}") from exc
+        # 有些情况下异常对象没有带任何文字（比如装依赖把 venv 里的 Pillow
+        # 换掉了，插件导入到一半失败），只打空格子用户完全没法猜，至少把类型名给上。
+        detail = str(exc).strip() or type(exc).__name__
+        raise EngineError(f"打不开图片 {path}：{detail}") from exc
 
     image = image.convert("RGB")
     scale = 1.0

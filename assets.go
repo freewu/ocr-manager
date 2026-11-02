@@ -16,7 +16,7 @@ import (
 // Version 是应用版本（发布时可用 -ldflags "-X ...Version=x.y.z" 覆盖）。
 var Version = "0.1.0"
 
-//go:embed python
+//go:embed python/pyproject.toml python/ocr_worker/*.py python/ocr_worker/engines/*.py python/tests/*.py
 var pythonAssets embed.FS
 
 // pythonRoot 是 embed 里的顶层目录名。
@@ -97,10 +97,17 @@ func devPythonDirs() []string {
 			dir = parent
 		}
 	}
-	for idx, dir := range out {
-		out[idx] = filepath.Clean(dir)
+	cleaned := []string{}
+	for _, dir := range out {
+		dir = filepath.Clean(dir)
+		// 发布包用 -trimpath 编译时 Caller 给的是模块路径（不是绝对路径），
+		// 这种候选不靠谱，直接用内置资源解包。
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		cleaned = append(cleaned, dir)
 	}
-	return out
+	return cleaned
 }
 
 // ResolveWebDir 返回前端构建产物目录（`web/dist`），开发态直接用仓库里的。
@@ -114,6 +121,10 @@ func ResolveWebDir(runtimeDir string) string {
 	}
 	candidates = append(candidates, filepath.Join(runtimeDir, "web"))
 	for _, dir := range candidates {
+		// 同 devPythonDirs：-trimpath 编译出来的 Caller 路径是相对模块路径，跳过
+		if !filepath.IsAbs(dir) {
+			continue
+		}
 		if fileExists(path.Join(dir, "index.html")) {
 			return dir
 		}

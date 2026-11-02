@@ -422,6 +422,36 @@ func (c *Core) Deactivate(modelID string) error {
 	return nil
 }
 
+// stopWorkers 关掉所有已加载的 worker，让模型退回「可以启用」。
+//
+// 装依赖 / 重建 venv 会替换 venv 里的包（pillow、opencv、onnxruntime…），
+// 而正在跑的 worker 已经把这些模块加载进内存了，替换之后再用就会报一堆
+// 看不懂的错（历史上踩过：识别直接失败，错信息是「打不开图片 xxx：」后面
+// 什么都没有 —— 因为 Pillow 的插件是被换掉之后才导入的）。
+//
+// 所以动 venv 之前一律先停掉：装完用户点识别时会自动重新拉起。
+func (c *Core) stopWorkers(reason string) {
+	c.mu.Lock()
+	workers := make([]*worker.Worker, 0, len(c.workers))
+	for id, w := range c.workers {
+		workers = append(workers, w)
+		delete(c.workers, id)
+	}
+	c.active = ""
+	if len(workers) > 0 {
+		c.status = map[string]*ModelStatus{}
+	}
+	c.mu.Unlock()
+	if len(workers) == 0 {
+		return
+	}
+	for _, w := range workers {
+		w.Shutdown(5 * time.Second)
+	}
+	c.Bus.Info("env", fmt.Sprintf("%s（已卸载 %d 个模型）", reason, len(workers)))
+	c.refreshAll(false)
+}
+
 // needsPrepare 表示必须走一次「下载」才能用。
 func (c *Core) needsPrepare(spec models.ModelSpec) bool {
 	return len(pyenv.ForModel(spec)) > 0 || spec.NeedsDownload()

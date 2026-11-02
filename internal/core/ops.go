@@ -147,6 +147,8 @@ func (c *Core) StartEnvInstall(extras []string) error {
 		label += " " + strings.Join(extras, ",")
 	}
 	return c.runOp("install", "", label, func() error {
+		// venv 里的包会被换掉，先把跑着的 worker 停掉，否则它们指向旧文件
+		c.stopWorkers("装依赖前先停掉正在运行的模型：venv 里的包要被替换")
 		if err := c.Env.Install(c.Bus, extras); err != nil {
 			return err
 		}
@@ -158,6 +160,8 @@ func (c *Core) StartEnvInstall(extras []string) error {
 // StartEnvRecreate 异步重建 venv。
 func (c *Core) StartEnvRecreate() error {
 	return c.runOp("recreate", "", "重建 venv", func() error {
+		// 同上：venv 整个删掉重建，worker 必须先退
+		c.stopWorkers("重建 venv 前先停掉正在运行的模型")
 		if err := c.Env.RecreateVenv(c.Bus); err != nil {
 			return err
 		}

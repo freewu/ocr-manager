@@ -49,7 +49,11 @@ def build_web() -> int:
 def build_go() -> int:
     BIN.mkdir(exist_ok=True)
     suffix = ".exe" if os.name == "nt" else ""
-    return run([GO, "build", "-o", str(BIN / f"ocr-server{suffix}"), "./cmd/ocr-server"])
+    # -trimpath：不要把自己的源码路径写进二进制。
+    # assets.go 用 runtime.Caller 找「开发态的 python/ 目录」，不裁剪路径的话
+    # 打包出来的 exe 会指向构建机上的仓库（在本机跑就一直用仓库源码，拷到别人
+    # 机器上才走内置解包）—— 两套行为不一致，很难查。裁掉之后发布包只认内置资源。
+    return run([GO, "build", "-trimpath", "-o", str(BIN / f"ocr-server{suffix}"), "./cmd/ocr-server"])
 
 
 def main(argv: list[str]) -> int:
