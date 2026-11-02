@@ -48,8 +48,14 @@ func (u *ui) logsPage() core.Node {
 		u.button(func() string { return "刷新" }, buttonQuiet, nil, u.refresh),
 	}
 
-	return u.pageRoot("日志", "进度、状态变化、依赖安装输出都在这里（服务端同时写 logs/日期.log）", actions,
+	return u.pageRoot("日志", "进度、状态变化、依赖安装输出都在这里（服务端同时写 logs/日期.log）；拖选多行后 Ctrl+C 复制", actions,
 		core.View{
+			// Selectable：鼠标拖拽**跨行**选中整段日志再 Ctrl+C。
+			// 只靠 Style 上的 UserSelect 时，每行文字各算一个选区，
+			// 拖到下一行就断了（NSGo 把跨元素的选区挂在祖先 View 的
+			// `View.Selectable` 上，也就是 web 里的 selection area）。
+			Selectable: true,
+			TestID:     "logs-select",
 			StyleFunc: func() core.Style {
 				p := u.pal()
 				return core.Style{
@@ -60,7 +66,7 @@ func (u *ui) logsPage() core.Node {
 					BorderWidth:  1,
 					BorderColor:  p.Border,
 					Background:   p.Surface,
-					// 日志要能用鼠标选中、Ctrl+C 复制
+					// 双击选词 / 三击选整行也靠它
 					UserSelect: core.UserSelectText,
 				}
 			},

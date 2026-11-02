@@ -741,6 +741,8 @@ func (u *ui) pageChips(total int) core.Node {
 // preText 是一段可滚动的等宽文本（结果正文）。
 func (u *ui) preText(get func() string) core.Node {
 	return core.View{
+		// Selectable：拖拽可以跨行选中（见 page_logs.go 里的注释）
+		Selectable: true,
 		StyleFunc: func() core.Style {
 			p := u.pal()
 			return core.Style{
@@ -750,7 +752,7 @@ func (u *ui) preText(get func() string) core.Node {
 				BorderWidth:  1,
 				BorderColor:  p.Border,
 				Background:   p.Background,
-				// 识别结果要能选中复制
+				// 识别结果要能选中复制（单行 / 双击选词）
 				UserSelect: core.UserSelectText,
 			}
 		},
@@ -796,6 +798,8 @@ func (u *ui) blocksView(page *ResultPage) core.Node {
 		))
 	}
 	return core.View{
+		// Selectable：分块列表拖拽可以跨行选中（见 page_logs.go 里的注释）
+		Selectable: true,
 		StyleFunc: func() core.Style {
 			p := u.pal()
 			return core.Style{
