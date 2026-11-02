@@ -175,6 +175,6 @@ def _ensure_loaded() -> None:
     global _loaded
     if _loaded:
         return
-    from . import mock, paddle, rapidocr, tesseract, vlm  # noqa: F401
+    from . import external, mock, paddle, rapidocr, tesseract, vlm  # noqa: F401
 
     _loaded = True

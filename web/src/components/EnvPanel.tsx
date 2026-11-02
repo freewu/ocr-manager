@@ -15,7 +15,8 @@ interface Props {
   onDetect: () => void;
 }
 
-const ALL_EXTRAS = ["rapidocr", "tesseract", "paddle", "vlm"];
+// surya / mineru 不是 pip 包本身，是装它们的命令行（模型卡上叫「安装命令」）。
+const ALL_EXTRAS = ["rapidocr", "tesseract", "paddle", "vlm", "surya", "mineru"];
 
 /** Python 环境弹层：venv 状态、extras 安装、重建、指定基础解释器。 */
 export default function EnvPanel({

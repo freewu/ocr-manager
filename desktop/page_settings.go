@@ -105,7 +105,7 @@ func (u *ui) dirsCard() core.Node {
 // envCard 是 Python 环境：基础解释器、依赖安装、重建。
 func (u *ui) envCard(info *AppInfo) core.Node {
 	env := u.data().env
-	extras := []string{"rapidocr", "tesseract", "paddle", "vlm"}
+	extras := []string{"rapidocr", "tesseract", "paddle", "vlm", "surya", "mineru"}
 	buttons := make([]core.Node, 0, len(extras)+2)
 	for _, extra := range extras {
 		name := extra
